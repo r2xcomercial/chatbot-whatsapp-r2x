@@ -1,0 +1,334 @@
+require("dotenv").config();
+
+const express = require("express");
+const OpenAI = require("openai");
+
+const app = express();
+
+app.use(express.json());
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+app.get("/", (req, res) => {
+  res.send("Chatbot R2X funcionando 🚀");
+});
+
+app.post("/chat", async (req, res) => {
+  try {
+
+    const mensagem = req.body.mensagem;
+
+    const resposta = await openai.chat.completions.create({
+      model: "gpt-4.1-mini",
+      messages: [
+        {
+          role: "system",
+          content: `
+Você é um atendente da R2X Aceleradora de Vendas.
+Seu objetivo é qualificar leads imobiliários.
+
+Pergunte:
+- cidade
+- objetivo
+- faixa de investimento
+- prazo para compra
+`
+        },
+        {
+          role: "user",
+          content: mensagem
+        }
+      ]
+    });
+
+    res.json({
+      resposta: resposta.choices[0].message.content
+    });
+
+  } catch (erro) {
+
+    console.log(erro);
+
+    res.status(500).json({
+      erro: "Erro no chatbot"
+    });
+
+  }
+});
+
+app.listen(3000, () => {
+  console.log("Servidor rodando na porta 3000");
+});
+app.get("/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode === "subscribe" && token === "r2x123") {
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
+app.post("/webhook", async (req, res) => {
+  try {
+    const message =
+      req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+
+    if (message) {
+      const texto = message.text?.body;
+      const from = message.from;
+
+      console.log("Mensagem recebida:", texto);
+
+      const respostaIA = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `
+Você é Bel, consultora virtual da R2X Aceleradora de Vendas.
+
+Você atende clientes interessados em loteamentos e imóveis.
+
+Você fala de forma humana, inteligente, simpática e consultiva.
+
+Seu objetivo é:
+- entender o perfil do cliente
+- criar conexão
+- despertar desejo
+- qualificar o lead
+- conduzir para visita ou atendimento humano
+
+Nunca fale que é inteligência artificial.
+            `,
+          },
+          {
+            role: "user",
+            content: texto,
+          },
+        ],
+      });
+
+      const resposta =
+        respostaIA.choices[0].message.content;
+
+      await fetch(
+        \`https://graph.facebook.com/v22.0/SEU_PHONE_NUMBER_ID/messages\`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: \`Bearer SEU_TOKEN_META\`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: from,
+            text: {
+              body: resposta,
+            },
+          }),
+        }
+      );
+    }
+
+    res.sendStatus(200);
+  } catch (error) {
+    console.log(error);
+    res.sendStatus(500);
+  }
+});
+const token = "SEU_TOKEN_DA_META";
+const phone_number_id = "1054722527731960";
+
+app.post("/webhook", async (req, res) => {
+  try {
+
+    const message =
+      req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+
+    if (message) {
+
+      const from = message.from;
+      const texto = message.text?.body;
+
+      console.log("Mensagem recebida:", texto);
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4.1-mini",
+        messages: [
+          {
+            role: "system",
+            content: `
+Você é Bel, consultora virtual da R2X.
+Você atende clientes do Residencial Belvedere.
+Fale de forma humana, simpática e comercial.
+`
+          },
+          {
+            role: "user",
+            content: texto
+          }
+        ]
+      });
+
+      const resposta =
+        completion.choices[0].message.content;
+
+      await fetch(
+        `https://graph.facebook.com/v22.0/${1054722527731960d}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer 
+${EAApofEsBHogBRd1L4aoEWiK9RBZBhmUCnxsbZB6SEk7w9T8cZBWb3ZAQXrEJDjUrvcCXR7GebGDZAwuXdQIBghqxtompgfWAzLAXZA5Jo5G4btawZBZAVcRxQeGVXZCm3c2uJxKeS2YRK2g3YuY93RxCBJ5v2KMlptKNy4ZCXxL3q1OtRZAttmyruRPCbG0tMhlKHhtUlL86X2PGhUASm3U47f9iitAAZBKz9WZBL8bCfytFJn8OGQtyANA5JlRzAjz3KlVVeZAF1yKRThmnblMF4addZCWVj4W7Sf81hSkvZAjbYQZDZDn}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: from,
+            text: {
+              body: resposta
+            }
+          })
+        }
+      );
+
+    }
+
+    res.sendStatus(200);
+
+  } catch (error) {
+    console.log(error);
+    res.sendStatus(500);
+  }
+});
+const phone_number_id = "1054722527731960";
+
+app.post("/webhook", async (req, res) => {
+  try {
+
+    const message =
+      req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+
+    if (message) {
+
+      const from = message.from;
+      const texto = message.text?.body;
+
+      console.log("Mensagem recebida:", texto);
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4.1-mini",
+        messages: [
+          {
+            role: "system",
+            content: `
+Você é Bel, consultora virtual da R2X.
+Você atende clientes do Residencial Belvedere.
+Fale de forma humana, simpática e comercial.
+`
+          },
+          {
+            role: "user",
+            content: texto
+          }
+        ]
+      });
+
+      const resposta =
+        completion.choices[0].message.content;
+
+      await fetch(
+        `https://graph.facebook.com/v22.0/${phone_number_id}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: from,
+            text: {
+              body: resposta
+            }
+          })
+        }
+      );
+
+    }
+
+    res.sendStatus(200);
+
+  } catch (error) {
+    console.log(error);
+    res.sendStatus(500);
+ const token = 
+"EAApofEsBHogBRd1L4aoEWiK9RBZBhmUCnxsbZB6SEk7w9T8cZBWb3ZAQXrEJDjUrvcCXR7GebGDZAwuXdQIBghqxtompgfWAzLAXZA5Jo5G4btawZBZAVcRxQeGVXZCm3c2uJxKeS2YRK2g3YuY93RxCBJ5v2KMlptKNy4ZCXxL3q1OtRZAttmyruRPCbG0tMhlKHhtUlL86X2PGhUASm3U47f9iitAAZBKz9WZBL8bCfytFJn8OGQtyANA5JlRzAjz3KlVVeZAF1yKRThmnblMF4addZCWVj4W7Sf81hSkvZAjbYQZDZDA";
+const phone_number_id = "1054722527731960";
+
+app.post("/webhook", async (req, res) => {
+  try {
+
+    const message =
+      req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+
+    if (message) {
+
+      const from = message.from;
+      const texto = message.text?.body;
+
+      console.log("Mensagem recebida:", texto);
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4.1-mini",
+        messages: [
+          {
+            role: "system",
+            content: `
+Você é Bel, consultora virtual da R2X.
+Você atende clientes do Residencial Belvedere.
+Fale de forma humana, simpática e comercial.
+`
+          },
+          {
+            role: "user",
+            content: texto
+          }
+        ]
+      });
+
+      const resposta =
+        completion.choices[0].message.content;
+
+      await fetch(
+        `https://graph.facebook.com/v22.0/${phone_number_id}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: from,
+            text: {
+              body: resposta
+            }
+          })
+        }
+      );
+
+    }
+
+    res.sendStatus(200);
+
+  } catch (error) {
+    console.log(error);
+    res.sendStatus(500);
+  }
+});
