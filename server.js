@@ -10,7 +10,7 @@ app.use(express.json());
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "r2x123";
-const CRM_URL = process.env.CRM_URL || "http://localhost:4000";
+const CRM_URL = process.env.CRM_URL || process.env.URL_CRM || "http://localhost:4000";
 
 async function sincronizarLeadCRM(telefone, perfil) {
   await fetch(`${CRM_URL}/api/leads/whatsapp`, {
