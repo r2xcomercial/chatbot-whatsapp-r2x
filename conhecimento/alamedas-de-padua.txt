@@ -9,64 +9,88 @@ Cidade: Tubarão, Santa Catarina
 DESCRIÇÃO GERAL
 Loteamento residencial urbano com 70 lotes distribuídos em 6 quadras (A, B, C, D, E e F).
 Área total do terreno: 40.407,86 m²
-Área total de lotes: 29.285,11 m² (72,47% da área total)
+Área total de lotes: 29.285,11 m²
 
 LOTES
 Total: 70 lotes
-Tamanhos dos lotes:
-- Lotes 1 a 4 (Quadra A): maiores, frente mínima 17m, área mínima 380 m²
+- Lotes 1 a 4 (Quadra A): frente mínima 17m, área mínima 380 m²
 - Lotes 5 a 70: frente mínima 11m, área a partir de 329 m²
 - Áreas variam entre 329 m² e 495 m² aproximadamente
-
-ÁREAS PÚBLICAS
-- Área Verde: 3.342,82 m² (8,27%)
-- Área Institucional: 2.828,90 m² (7,00%)
-- Área de Arruamento: 4.951,03 m² (12,25%)
-- Total de áreas públicas: 27,53%
-
-INFRAESTRUTURA DAS RUAS
-Ruas com 12 metros de largura, incluindo:
-- 2,50m de calçada em cada lado
-- 7,00m de pista de rolamento
-
-RUAS INTERNAS
-- Rua Rui Barbosa
-- Rua Henrique Meneghel
-- Rua São Geraldo
-- Rua José Genovez
-- Rua Germano Siebert
-- Rua José Ferreira
-- Rua Augusto Severo
-
-PARÂMETROS URBANÍSTICOS
-Lotes 1 a 4:
-- Taxa de ocupação máxima: 50%
-- Coeficiente de aproveitamento: 2
-- Altura máxima: 8,5m
-
-Lotes 5 a 70:
-- Taxa de ocupação máxima: 50%
-- Coeficiente de aproveitamento: 2
-- Altura máxima: 8,5m
-- Taxa de permeabilidade mínima: 15%
-
-RESPONSÁVEL TÉCNICO
-Eng.º Eduardo R. Ceolin — CREA/SC 170392-4
 
 FAIXA DE PREÇOS
 - Lotes a partir de R$ 160.000
 - Lotes até R$ 790.000 (lotes maiores)
-- Grande diversidade de tamanhos e valores
 - Promoção: na compra de 2 lotes, o segundo tem 5% de desconto adicional
 
 CONDIÇÕES DE PAGAMENTO
 - As condições completas serão divulgadas no lançamento oficial
-- Não informar parcelas, entradas ou simulações — dizer que essas informações serão apresentadas no evento de lançamento
-- Convidar o lead para o lançamento ou para uma apresentação comercial com a equipe R2X
+- Não informar parcelas, entradas ou simulações — convidar para apresentação comercial com a equipe R2X
 
-OBSERVAÇÕES PARA ATENDIMENTO
-- Empreendimento aprovado e com projeto urbanístico registrado (matrícula 66.619)
+PRAZO DE ENTREGA
+- Previsão: final de 2025, caso não haja períodos prolongados de chuva
+- Obra rápida — infraestrutura de loteamento
+
+INFRAESTRUTURA
+- Ruas de 12 metros com calçadas e pista de rolamento
+- Área verde: 3.342,82 m²
+- Área institucional: 2.828,90 m²
+- Projeto urbanístico aprovado e registrado (matrícula 66.619)
+
+DIFERENCIAIS E COMO DESPERTAR DESEJO
+
+LOCALIZAÇÃO E VALORIZAÇÃO:
+- Inserido no bairro residencial mais desejado e valorizado de Tubarão
+- Em frente ao Condomínio Reserva — o condomínio fechado de mais alto padrão da cidade, com o maior valor de m² de Tubarão. Essa proximidade agrega diretamente valor ao Alamedas.
+- Ao lado do Supermercado Koch — rede reconhecida pela qualidade, com ampla gama de produtos e serviços anexos
+- Tudo próximo: serviços, comércio, escolas e saúde
+
+METRAGEM DOS LOTES:
+- Lotes maiores que a média da concorrência em Tubarão — diferencial claro para quem quer construir uma casa espaçosa
+
+PARA QUEM QUER MORAR:
+- Ideal para construir a casa dos sonhos em um dos bairros mais valorizados de Tubarão
+- Vizinhança de alto padrão, tranquilidade e infraestrutura completa
+- Quem mora no entorno já escolheu qualidade de vida — o Alamedas está nesse mesmo nível
+
+PARA QUEM QUER INVESTIR:
+- Estar em frente ao Condomínio Reserva (maior m² da cidade) é uma garantia de valorização
+- Loteamento em bairro consolidado de alto padrão — demanda constante e valorização segura
+- Oportunidade de entrada antes da entrega com preço de lançamento
+
+PERFIL DO COMPRADOR IDEAL
+- Casais bem-sucedidos, profissionais liberais: médicos, dentistas, advogados
+- Pessoas que buscam qualidade de vida, vizinhança selecionada e espaço para construir do jeito que querem
+- Investidores que conhecem o mercado de Tubarão e entendem o valor da localização
+
+COMO LIDAR COM OBJEÇÕES
+
+OBJEÇÃO DE PREÇO:
+- É esperada e natural. Responder com naturalidade: "O Alamedas está localizado no bairro residencial mais valorizado de Tubarão, em frente ao Condomínio Reserva — o de maior m² da cidade. Esse posicionamento tem um preço diferente de loteamentos em bairros menos valorizados, e é exatamente isso que garante a valorização do seu investimento."
+- Nunca justificar o preço se desculpando — afirmar o valor com segurança
+
+OBJEÇÃO DE FRENTE DO LOTE (11 metros):
+- NÃO tocar nesse assunto por iniciativa própria
+- Se o lead levantar: apresentar a opção de comprar dois lotes lado a lado, ficando com 22 metros de frente e ainda ganhando 5% de desconto na segunda unidade
+- Transformar a objeção em oportunidade de venda maior
+
+OBJEÇÃO DE PRAZO:
+- Prazo de entrega é um ponto forte — previsão de entrega até o final de 2025
+- "A obra de loteamento é rápida, e a previsão é estar pronta ainda este ano"
+
+LOCALIZAÇÃO:
+- Não há objeções esperadas — a localização é um diferencial inquestionável
+
+SCRIPT PARA A DÉBORA
+1. Identificar se o lead é comprador para morar ou investidor
+2. Para morar: explorar o desejo de viver em um bairro de alto padrão, próximo a tudo, com espaço para construir a casa ideal
+3. Para investir: explorar a valorização garantida pela proximidade com o Condomínio Reserva e pelo bairro consolidado
+4. Destacar a metragem dos lotes acima da média do mercado
+5. Não revelar condições de pagamento detalhadas — convidar para apresentação comercial
+6. Se houver objeção de preço: afirmar o valor com base na localização e no padrão do entorno
+7. Se houver objeção de frente: apresentar a opção dos 2 lotes com desconto
+
+OBSERVAÇÕES
+- NÃO informar condições de pagamento detalhadas antes do lançamento oficial
+- NÃO mencionar a frente de 11m por iniciativa própria
 - Incorporadora DMG Loteamentos, com sede em Florianópolis/SC, atuando desde 2018
-- NÃO informar preços individuais por lote nem condições de pagamento detalhadas antes do lançamento
-- Despertar interesse e conduzir para agendamento de visita ou apresentação comercial
-- Destacar: localização em Tubarão/SC, 70 lotes, área verde, infraestrutura completa
+- Responsável técnico: Eng.º Eduardo R. Ceolin — CREA/SC 170392-4
