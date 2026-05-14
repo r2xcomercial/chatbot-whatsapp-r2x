@@ -1,4 +1,4 @@
-EMPREENDIMENTO: OSLO HOME
+EMPREENDIMENTO: OSLO HOME FAMILY
 Tipo: Edifício residencial vertical
 Cidade: Braço do Norte, Santa Catarina
 Status: PRÉ-LANÇAMENTO — captando leads para grupo VIP
@@ -48,7 +48,7 @@ INCORPORADORA
 
 SCRIPT PARA A BEL
 Quando o lead perguntar sobre o Oslo:
-1. Demonstre entusiasmo: "Ah, o Oslo Home é um dos lançamentos mais esperados de Braço do Norte!"
+1. Demonstre entusiasmo: "Ah, o Oslo Home Family é um dos lançamentos mais esperados de Braço do Norte!"
 2. Destaque a exclusividade do grupo VIP
 3. Não revele preços — diga: "Os valores e condições especiais serão apresentados em primeira-mão para quem está no grupo VIP"
 4. Pergunte: "Você mora ou pretende morar em Braço do Norte, ou está pensando em investimento?"
