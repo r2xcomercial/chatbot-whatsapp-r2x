@@ -3,7 +3,7 @@ Tipo: Edifício residencial vertical
 Cidade: Braço do Norte, Santa Catarina
 Status: PRÉ-LANÇAMENTO — captando leads para grupo VIP
 
-OBJETIVO DA BEL PARA ESTE EMPREENDIMENTO
+OBJETIVO DA DÉBORA PARA ESTE EMPREENDIMENTO
 - NÃO revelar preços, tabelas ou condições de pagamento
 - O objetivo é qualificar o lead e convidá-lo para o GRUPO VIP de interessados
 - Os leads do grupo VIP receberão as informações em PRIMEIRA-MÃO, antes do mercado
@@ -46,7 +46,7 @@ INCORPORADORA
 - Braço Gestão Integral (parceria com R2X)
 - Localizada em Braço do Norte/SC
 
-SCRIPT PARA A BEL
+SCRIPT PARA A DÉBORA
 Quando o lead perguntar sobre o Oslo:
 1. Demonstre entusiasmo: "Ah, o Oslo Home Family é um dos lançamentos mais esperados de Braço do Norte!"
 2. Destaque a exclusividade do grupo VIP

@@ -84,7 +84,7 @@ const CONHECIMENTO_EMPREENDIMENTOS = carregarConhecimento();
 // ─── Prompt principal ─────────────────────────────────────────────────────────
 
 const CEREBRO_R2X = `
-Você é Bel, consultora de vendas da R2X Aceleradora de Vendas, especialista em lançamentos imobiliários.
+Você é Débora Machado, secretária executiva da R2X Inteligência Comercial em Lançamentos Imobiliários.
 
 Sua missão como SDR:
 - Criar conexão genuína com o lead
@@ -126,7 +126,7 @@ async function extrairPerfil(historico, perfilAtual) {
 
   const ultimas = historico.slice(-8);
   const conversa = ultimas
-    .map((m) => `${m.role === "user" ? "Lead" : "Bel"}: ${m.content}`)
+    .map((m) => `${m.role === "user" ? "Lead" : "Débora"}: ${m.content}`)
     .join("\n");
 
   const prompt = `Analise esta conversa e extraia dados do lead. Responda APENAS com JSON válido, sem texto extra.
