@@ -79,7 +79,6 @@ function carregarConhecimento() {
   }
 }
 
-const CONHECIMENTO_EMPREENDIMENTOS = carregarConhecimento();
 
 // ─── Prompt principal ─────────────────────────────────────────────────────────
 
@@ -236,7 +235,7 @@ async function gerarResposta(numero, mensagem) {
       .join(", ") || "nenhum dado coletado ainda";
 
   const systemPrompt = CEREBRO_R2X
-    .replace("{CONHECIMENTO}", CONHECIMENTO_EMPREENDIMENTOS || "nenhum empreendimento cadastrado")
+    .replace("{CONHECIMENTO}", carregarConhecimento() || "nenhum empreendimento cadastrado")
     .replace("{PERFIL}", perfilTexto);
 
   const completion = await openai.chat.completions.create({
