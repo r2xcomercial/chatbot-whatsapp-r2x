@@ -335,6 +335,11 @@ Empreendimentos disponíveis:
 
 Perfil coletado até agora:
 {PERFIL}
+
+ADAPTAÇÃO POR TIPO (obrigatório):
+- Se perfil mostrar "tipo: corretor" → use EXCLUSIVAMENTE o FLUXO PARA CORRETOR acima
+- Se perfil mostrar "tipo: cliente" → use EXCLUSIVAMENTE o FLUXO PARA CLIENTE FINAL acima
+- Se tipo ainda não identificado → identifique pelo contexto antes de prosseguir
 `;
 
 // ─── Extração de perfil estruturado ──────────────────────────────────────────
@@ -479,9 +484,10 @@ async function enviarMensagem(para, texto) {
 
 const RESPOSTAS_MIDIA = {
   image: "Recebi sua imagem! Por enquanto funciono melhor com texto. O que você gostaria de saber?",
-  document: "Recebi seu documento! Me escreve o que você precisa.",
+  document: "Recebi seu documento! Me conta o que você precisa e vejo como posso te ajudar.",
   sticker: "😊 Me conta, como posso te ajudar?",
-  location: "Recebi sua localização! Me conta o que você está procurando.",
+  location: "Recebi sua localização! Me fala um pouco mais — você está buscando imóvel nessa região?",
+  video: "Recebi seu vídeo! Para agilizar, pode me escrever o que você precisa? Assim consigo te ajudar melhor 😊",
 };
 
 // ─── Transcrição de áudio com Whisper ────────────────────────────────────────
