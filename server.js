@@ -12,6 +12,8 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "r2x123";
 const CRM_URL = process.env.CRM_URL || process.env.URL_CRM || "http://localhost:4000";
 const PAINEL_TOKEN = process.env.PAINEL_TOKEN || "r2x@painel2026";
+const DONO_NUMERO = process.env.DONO_NUMERO || ""; // número do Ramon no formato 5548XXXXXXXXX
+const INSTRUCOES_FILE = "conhecimento/instrucoes-dono.txt";
 
 // ─── CORS para o CRM R2X ──────────────────────────────────────────────────────
 
@@ -113,6 +115,103 @@ function carregarConhecimento() {
   } catch {
     return "";
   }
+}
+
+// ─── Instruções do dono ───────────────────────────────────────────────────────
+
+function carregarInstrucoesDono() {
+  try {
+    return fs.readFileSync(INSTRUCOES_FILE, "utf8").trim();
+  } catch {
+    return "Nenhuma instrução registrada ainda.";
+  }
+}
+
+async function salvarInstrucaoDono(instrucao) {
+  const existente = carregarInstrucoesDono().replace("Nenhuma instrução registrada ainda.", "").trim();
+  const data = new Date().toLocaleDateString("pt-BR");
+  const nova = existente
+    ? `${existente}\n- [${data}] ${instrucao}`
+    : `INSTRUÇÕES DO RAMON — Atualizações e diretrizes passadas pelo dono da R2X:\n- [${data}] ${instrucao}`;
+  fs.writeFileSync(INSTRUCOES_FILE, nova, "utf8");
+}
+
+// Analisa a mensagem do Ramon e extrai instruções a salvar (se houver)
+async function extrairInstrucaoDono(mensagem, resposta) {
+  const prompt = `O dono da empresa enviou esta mensagem para a assistente de vendas:
+"${mensagem}"
+
+A assistente respondeu:
+"${resposta}"
+
+Identifique se a mensagem do dono contém uma INSTRUÇÃO CLARA que a assistente deve seguir de forma permanente (mudança de abordagem, nova informação, nova regra de comportamento, correção).
+
+Se houver instrução clara: responda apenas com a instrução em uma frase objetiva, começando com verbo no infinitivo. Ex: "Sempre mencionar o desconto de 5% para leads do Belvedere."
+Se NÃO houver instrução clara (só conversa, teste ou pergunta): responda apenas: NENHUMA`;
+
+  try {
+    const result = await openai.chat.completions.create({
+      model: "gpt-4.1-nano",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 100,
+    });
+    const extraido = result.choices[0].message.content.trim();
+    if (extraido && extraido !== "NENHUMA" && !extraido.startsWith("NENHUMA")) {
+      await salvarInstrucaoDono(extraido);
+    }
+  } catch {}
+}
+
+// Gera resposta da Débora no modo dono (conversa com o Ramon)
+async function gerarRespostaDono(numero, mensagem) {
+  const memoria = carregarMemoria();
+  if (!memoria[numero]) memoria[numero] = { historico: [], perfil: {}, pausado: false };
+
+  memoria[numero].historico.push({ role: "user", content: mensagem });
+  if (memoria[numero].historico.length > 40) {
+    memoria[numero].historico = memoria[numero].historico.slice(-40);
+  }
+
+  const instrucoes = carregarInstrucoesDono();
+  const conhecimento = carregarConhecimento();
+
+  const systemDono = `Você é Débora Machado, assistente de vendas da R2X criada pelo Ramon Beza.
+
+Você está conversando diretamente com o RAMON BEZA — seu fundador, chefe e dono da R2X. Trate-o com naturalidade e respeito, como uma funcionária fala com seu chefe de confiança.
+
+COMO SE COMPORTAR COM O RAMON:
+- Responda com naturalidade, sem enrolação
+- Se ele der uma instrução nova, confirme que entendeu e que vai aplicar
+- Se ele pedir para você simular um atendimento, entre no papel de Débora atendendo um lead
+- Se ele te corrigir, agradeça e confirme a correção
+- Se ele te perguntar o que você sabe, resuma suas instruções e conhecimentos
+- Você pode ser direta com ele — ele é o chefe
+
+INSTRUÇÕES JÁ REGISTRADAS PELO RAMON:
+${instrucoes}
+
+EMPREENDIMENTOS E CONHECIMENTO ATUAL:
+${conhecimento}`;
+
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4.1-mini",
+    messages: [
+      { role: "system", content: systemDono },
+      ...memoria[numero].historico,
+    ],
+  });
+
+  const resposta = completion.choices[0].message.content;
+  memoria[numero].historico.push({ role: "assistant", content: resposta });
+  await salvarMemoria(memoria);
+
+  notificarPainel({ tipo: "mensagem", numero, role: "user", content: mensagem, ts: Date.now() });
+  notificarPainel({ tipo: "mensagem", numero, role: "assistant", content: resposta, ts: Date.now() });
+
+  // Analisa em background se há instrução nova para salvar
+  extrairInstrucaoDono(mensagem, resposta).catch(() => {});
+
+  return resposta;
 }
 
 // ─── Prompt principal ─────────────────────────────────────────────────────────
@@ -399,6 +498,13 @@ app.post("/webhook", async (req, res) => {
 
     const texto = message.text?.body || "";
     console.log(`[${new Date().toLocaleTimeString()}] ${from}: ${texto}`);
+
+    // Modo dono: Ramon conversa diretamente com a Débora para treinar e instruir
+    if (DONO_NUMERO && from === DONO_NUMERO) {
+      const respostaDono = await gerarRespostaDono(from, texto);
+      await enviarMensagem(from, respostaDono);
+      return res.sendStatus(200);
+    }
 
     // Notifica o painel que chegou mensagem do lead
     notificarPainel({ tipo: "mensagem", numero: from, role: "user", content: texto, ts: Date.now() });
