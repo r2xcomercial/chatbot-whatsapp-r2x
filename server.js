@@ -51,18 +51,55 @@ function autenticarPainel(req, res) {
 
 // ─── CRM sync ─────────────────────────────────────────────────────────────────
 
-async function sincronizarLeadCRM(telefone, perfil) {
+function calcularScore(perfil) {
+  let s = 0;
+  if (perfil.nome)                    s += 15;
+  if (perfil.cidade)                  s += 10;
+  if (perfil.objetivo)                s += 15;
+  if (perfil.tipo)                    s +=  5;
+  if (perfil.faixa_investimento)      s += 20;
+  if (perfil.prazo)                   s += 15;
+  if (perfil.empreendimento_interesse)s += 20;
+  return s; // máx 100
+}
+
+async function gerarResumoLead(historico, perfil) {
+  if (historico.length < 6) return null;
+  const trecho = historico.slice(-10)
+    .map((m) => `${m.role === "user" ? "Lead" : "Débora"}: ${m.content}`)
+    .join("\n");
+  try {
+    const r = await openai.chat.completions.create({
+      model: "gpt-4.1-nano",
+      max_tokens: 80,
+      messages: [{
+        role: "user",
+        content: `Resuma este lead em 1 frase curta e objetiva para a equipe comercial (máximo 90 caracteres):\nPerfil: ${JSON.stringify(perfil)}\nConversa:\n${trecho}`,
+      }],
+    });
+    return r.choices[0].message.content.trim().slice(0, 120);
+  } catch {
+    return null;
+  }
+}
+
+async function sincronizarLeadCRM(telefone, perfil, historico = []) {
+  const score = calcularScore(perfil);
+  const resumo = await gerarResumoLead(historico, perfil).catch(() => null);
   await fetch(`${CRM_URL}/api/leads/whatsapp`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       telefone,
-      nome: perfil.nome,
-      cidade: perfil.cidade,
-      objetivo: perfil.objetivo,
-      faixa_investimento: perfil.faixa_investimento,
-      prazo: perfil.prazo,
-      empreendimento_interesse: perfil.empreendimento_interesse,
+      nome:                    perfil.nome,
+      cidade:                  perfil.cidade,
+      objetivo:                perfil.objetivo,
+      tipo:                    perfil.tipo,
+      faixa_investimento:      perfil.faixa_investimento,
+      prazo:                   perfil.prazo,
+      empreendimento_interesse:perfil.empreendimento_interesse,
+      score,
+      resumo,
     }),
   });
 }
@@ -441,7 +478,7 @@ async function gerarResposta(numero, mensagem) {
       if (mem[numero]) {
         mem[numero].perfil = novoPerfil;
         await salvarMemoria(mem);
-        sincronizarLeadCRM(numero, novoPerfil).catch(() => {});
+        sincronizarLeadCRM(numero, novoPerfil, mem[numero].historico || []).catch(() => {});
         notificarPainel({ tipo: "perfil", numero, perfil: novoPerfil });
       }
     }
