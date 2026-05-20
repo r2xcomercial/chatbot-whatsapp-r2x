@@ -3,6 +3,8 @@ require("dotenv").config();
 const express = require("express");
 const OpenAI = require("openai");
 const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
 const app = express();
 app.use(express.json());
@@ -465,12 +467,44 @@ async function enviarMensagem(para, texto) {
 }
 
 const RESPOSTAS_MIDIA = {
-  audio: "Recebi seu áudio! Infelizmente ainda não consigo ouvir mensagens de voz. Pode me escrever sua dúvida?",
   image: "Recebi sua imagem! Por enquanto funciono melhor com texto. O que você gostaria de saber?",
   document: "Recebi seu documento! Me escreve o que você precisa.",
   sticker: "😊 Me conta, como posso te ajudar?",
   location: "Recebi sua localização! Me conta o que você está procurando.",
 };
+
+// ─── Transcrição de áudio com Whisper ────────────────────────────────────────
+
+async function transcreverAudio(mediaId) {
+  // 1. Obtém a URL do arquivo de mídia na Meta
+  const mediaRes = await fetch(`https://graph.facebook.com/v25.0/${mediaId}`, {
+    headers: { Authorization: `Bearer ${META_TOKEN}` },
+  });
+  const mediaData = await mediaRes.json();
+  if (!mediaData.url) throw new Error("URL de mídia não encontrada");
+
+  // 2. Baixa o arquivo de áudio
+  const audioRes = await fetch(mediaData.url, {
+    headers: { Authorization: `Bearer ${META_TOKEN}` },
+  });
+  const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
+
+  // 3. Salva em arquivo temporário
+  const tmpFile = path.join(os.tmpdir(), `r2x_audio_${Date.now()}.ogg`);
+  fs.writeFileSync(tmpFile, audioBuffer);
+
+  // 4. Transcreve com Whisper
+  try {
+    const transcription = await openai.audio.transcriptions.create({
+      file: fs.createReadStream(tmpFile),
+      model: "whisper-1",
+      language: "pt",
+    });
+    return transcription.text?.trim() || "";
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch {}
+  }
+}
 
 // ─── Rotas principais ─────────────────────────────────────────────────────────
 
@@ -522,6 +556,26 @@ app.post("/webhook", async (req, res) => {
 
     const from = message.from;
 
+    // Áudio: transcreve com Whisper e processa como texto
+    if (message.type === "audio") {
+      const mediaId = message.audio?.id;
+      let texto = "";
+      try {
+        texto = await transcreverAudio(mediaId);
+      } catch (e) {
+        console.error("[ÁUDIO] Erro na transcrição:", e.message);
+      }
+      if (!texto) {
+        await enviarMensagem(from, "Recebi seu áudio! Tive dificuldade para ouvir agora. Pode escrever o que você precisa?");
+        return res.sendStatus(200);
+      }
+      console.log(`[ÁUDIO] ${from}: ${texto}`);
+      // Reutiliza o mesmo fluxo abaixo — seta a variável e deixa cair no processamento normal
+      message.type = "text";
+      message.text = { body: texto };
+      message._transcrito = true;
+    }
+
     if (message.type !== "text") {
       const fallback = RESPOSTAS_MIDIA[message.type] || "Recebi sua mensagem! Pode me escrever o que você precisa?";
       await enviarMensagem(from, fallback);
@@ -529,7 +583,8 @@ app.post("/webhook", async (req, res) => {
     }
 
     const texto = message.text?.body || "";
-    console.log(`[${new Date().toLocaleTimeString()}] ${from}: ${texto}`);
+    const prefixo = message._transcrito ? "🎤 " : "";
+    console.log(`[${new Date().toLocaleTimeString()}] ${from}: ${prefixo}${texto}`);
 
     // Modo dono: Ramon conversa diretamente com a Débora para treinar e instruir
     if (DONO_NUMERO && from === DONO_NUMERO) {
@@ -539,12 +594,11 @@ app.post("/webhook", async (req, res) => {
     }
 
     // Notifica o painel que chegou mensagem do lead
-    notificarPainel({ tipo: "mensagem", numero: from, role: "user", content: texto, ts: Date.now() });
+    notificarPainel({ tipo: "mensagem", numero: from, role: "user", content: `${prefixo}${texto}`, ts: Date.now() });
 
     // Se a conversa está pausada (Ramon assumiu), não responde automaticamente
     const memoriaAtual = carregarMemoria();
     if (memoriaAtual[from]?.pausado) {
-      // Salva a mensagem no histórico mas não responde
       if (!memoriaAtual[from].historico) memoriaAtual[from].historico = [];
       memoriaAtual[from].historico.push({ role: "user", content: texto });
       if (memoriaAtual[from].historico.length > 30) {
