@@ -127,36 +127,68 @@ function carregarInstrucoesDono() {
   }
 }
 
-async function salvarInstrucaoDono(instrucao) {
-  const existente = carregarInstrucoesDono().replace("Nenhuma instrução registrada ainda.", "").trim();
+async function salvarInstrucaoDono(novaInstrucao) {
+  const existente = carregarInstrucoesDono();
   const data = new Date().toLocaleDateString("pt-BR");
-  const nova = existente
-    ? `${existente}\n- [${data}] ${instrucao}`
-    : `INSTRUÇÕES DO RAMON — Atualizações e diretrizes passadas pelo dono da R2X:\n- [${data}] ${instrucao}`;
-  fs.writeFileSync(INSTRUCOES_FILE, nova, "utf8");
-}
 
-// Analisa a mensagem do Ramon e extrai instruções a salvar (se houver)
-async function extrairInstrucaoDono(mensagem, resposta) {
-  const prompt = `O dono da empresa enviou esta mensagem para a assistente de vendas:
-"${mensagem}"
+  // Usa GPT para mesclar inteligentemente — substitui info desatualizada, adiciona se for nova
+  const prompt = `Você é um editor de documento de instruções de vendas.
 
-A assistente respondeu:
-"${resposta}"
+Documento atual:
+${existente}
 
-Identifique se a mensagem do dono contém uma INSTRUÇÃO CLARA que a assistente deve seguir de forma permanente (mudança de abordagem, nova informação, nova regra de comportamento, correção).
+Nova instrução/atualização (data: ${data}):
+${novaInstrucao}
 
-Se houver instrução clara: responda apenas com a instrução em uma frase objetiva, começando com verbo no infinitivo. Ex: "Sempre mencionar o desconto de 5% para leads do Belvedere."
-Se NÃO houver instrução clara (só conversa, teste ou pergunta): responda apenas: NENHUMA`;
+Regras:
+- Se a nova instrução ATUALIZA ou CONTRADIZ alguma existente (ex: novo número de lotes, novo preço, nova disponibilidade), SUBSTITUA a antiga pela nova com a data de hoje
+- Se é uma instrução NOVA sem conflito com nenhuma existente, ADICIONE ao final
+- Mantenha o cabeçalho "INSTRUÇÕES DO RAMON" no topo
+- Formato de cada linha: "- [DD/MM/AAAA] instrução"
+- Retorne APENAS o documento final, sem explicações`;
 
   try {
     const result = await openai.chat.completions.create({
       model: "gpt-4.1-nano",
       messages: [{ role: "user", content: prompt }],
-      max_tokens: 100,
+      max_tokens: 800,
+    });
+    const atualizado = result.choices[0].message.content.trim();
+    if (atualizado) fs.writeFileSync(INSTRUCOES_FILE, atualizado, "utf8");
+  } catch {
+    // Fallback: só adiciona no final
+    const data = new Date().toLocaleDateString("pt-BR");
+    const conteudo = existente.replace("Nenhuma instrução registrada ainda.", "").trim();
+    fs.writeFileSync(INSTRUCOES_FILE,
+      conteudo ? `${conteudo}\n- [${data}] ${novaInstrucao}` :
+      `INSTRUÇÕES DO RAMON — Atualizações e diretrizes passadas pelo dono da R2X:\n- [${data}] ${novaInstrucao}`,
+      "utf8"
+    );
+  }
+}
+
+// Analisa a mensagem do Ramon e extrai instruções/atualizações a salvar (se houver)
+async function extrairInstrucaoDono(mensagem, resposta) {
+  const prompt = `O dono da R2X enviou esta mensagem para a assistente de vendas:
+"${mensagem}"
+
+Identifique se a mensagem contém informação que deve ser salva permanentemente:
+- Atualização de números (lotes disponíveis, unidades vendidas, preços, datas)
+- Nova regra de abordagem ou comportamento
+- Correção de informação anterior
+- Novo dado sobre um empreendimento
+
+Se SIM: responda apenas com a informação em uma frase clara e objetiva. Ex: "O Belvedere agora tem 18 lotes disponíveis (atualizado em maio/2026)."
+Se NÃO (só conversa, teste, pergunta ou simulação): responda apenas: NENHUMA`;
+
+  try {
+    const result = await openai.chat.completions.create({
+      model: "gpt-4.1-nano",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 120,
     });
     const extraido = result.choices[0].message.content.trim();
-    if (extraido && extraido !== "NENHUMA" && !extraido.startsWith("NENHUMA")) {
+    if (extraido && !extraido.startsWith("NENHUMA")) {
       await salvarInstrucaoDono(extraido);
     }
   } catch {}
