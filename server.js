@@ -11,6 +11,41 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "r2x123";
 const CRM_URL = process.env.CRM_URL || process.env.URL_CRM || "http://localhost:4000";
+const PAINEL_TOKEN = process.env.PAINEL_TOKEN || "r2x@painel2026";
+
+// ─── CORS para o CRM R2X ──────────────────────────────────────────────────────
+
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Painel-Token");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
+// ─── SSE clients para o painel ────────────────────────────────────────────────
+
+const painelClients = new Map();
+
+function notificarPainel(evento) {
+  const data = `data: ${JSON.stringify(evento)}\n\n`;
+  for (const [, res] of painelClients) {
+    try { res.write(data); } catch {}
+  }
+}
+
+// ─── Auth do painel ───────────────────────────────────────────────────────────
+
+function autenticarPainel(req, res) {
+  const token = req.headers["x-painel-token"] || req.query.token;
+  if (token !== PAINEL_TOKEN) {
+    res.status(401).json({ erro: "Não autorizado" });
+    return false;
+  }
+  return true;
+}
+
+// ─── CRM sync ─────────────────────────────────────────────────────────────────
 
 async function sincronizarLeadCRM(telefone, perfil) {
   await fetch(`${CRM_URL}/api/leads/whatsapp`, {
@@ -27,6 +62,7 @@ async function sincronizarLeadCRM(telefone, perfil) {
     }),
   });
 }
+
 const META_TOKEN = process.env.META_ACCESS_TOKEN;
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const MEMORIA_FILE = "memoria.json";
@@ -59,11 +95,11 @@ function salvarMemoria(memoria) {
   });
 }
 
-// ─── Deduplicação de mensagens (Meta às vezes reenvia o webhook) ──────────────
+// ─── Deduplicação de mensagens ────────────────────────────────────────────────
 
 const mensagensProcessadas = new Set();
 
-// ─── Carrega arquivos de conhecimento dos empreendimentos ─────────────────────
+// ─── Conhecimento dos empreendimentos ─────────────────────────────────────────
 
 function carregarConhecimento() {
   try {
@@ -78,7 +114,6 @@ function carregarConhecimento() {
     return "";
   }
 }
-
 
 // ─── Prompt principal ─────────────────────────────────────────────────────────
 
@@ -108,17 +143,14 @@ GATILHOS DE PERSUASÃO — aplique naturalmente, nunca de forma forçada:
 
 1. ESCASSEZ — desperte urgência real:
    "São apenas 36 unidades no Oslo, e o grupo VIP está sendo fechado agora."
-   "Os lotes do Alamedas estão sendo reservados antes mesmo do lançamento."
    Use quando o lead demonstrar interesse mas hesitar.
 
 2. EXCLUSIVIDADE — faça a pessoa se sentir especial:
    "Você está entre os primeiros a ter acesso a essas informações."
-   "O grupo VIP é seleto — não é para todo mundo, é para quem quer sair na frente."
    Use ao convidar para grupo VIP ou apresentação.
 
 3. PROVA SOCIAL — mostre que outros já estão se movendo:
    "Já temos vários interessados confirmados no grupo VIP."
-   "Profissionais como médicos e empresários de Braço do Norte já estão reservando."
    Use quando o lead estiver em dúvida sobre o empreendimento.
 
 4. AUTORIDADE — transmita segurança e conhecimento:
@@ -127,19 +159,15 @@ GATILHOS DE PERSUASÃO — aplique naturalmente, nunca de forma forçada:
 
 5. RECIPROCIDADE — dê antes de pedir:
    Ofereça informações valiosas sobre o mercado local antes de pedir dados do lead.
-   "Braço do Norte tem um dos mercados mais aquecidos do Sul — deixa eu te contar por quê."
 
 6. AFINIDADE — crie conexão genuína:
    Espelhe o tom da pessoa: se for formal, seja formal; se for descontraída, relaxe um pouco.
-   Demonstre que entende a realidade dela: "Faz todo sentido querer segurança para a família."
 
 7. COMPROMETIMENTO — pequenos "sins" levam ao grande sim:
    Conduza com perguntas que gerem respostas positivas antes de convidar para o próximo passo.
-   "Você prefere uma localização central ou mais tranquila?" — qualquer resposta avança a conversa.
 
 8. ANTECIPAÇÃO — crie expectativa:
    "Quando você entrar no grupo VIP, vai entender por que esse é o lançamento mais comentado da região."
-   Use antes de revelar qualquer informação especial.
 
 FLUXO PARA CLIENTE FINAL:
 1. Apresentação calorosa + pegar o nome
@@ -169,7 +197,7 @@ Perfil coletado até agora:
 {PERFIL}
 `;
 
-// ─── Extração de perfil estruturado (roda em background) ─────────────────────
+// ─── Extração de perfil estruturado ──────────────────────────────────────────
 
 async function extrairPerfil(historico, perfilAtual) {
   if (historico.length < 4) return perfilAtual;
@@ -220,7 +248,7 @@ async function gerarResposta(numero, mensagem) {
   const memoria = carregarMemoria();
 
   if (!memoria[numero]) {
-    memoria[numero] = { historico: [], perfil: perfilVazio() };
+    memoria[numero] = { historico: [], perfil: perfilVazio(), pausado: false };
   }
   if (!memoria[numero].perfil) {
     memoria[numero].perfil = perfilVazio();
@@ -255,15 +283,18 @@ async function gerarResposta(numero, mensagem) {
 
   await salvarMemoria(memoria);
 
-  // Extrai dados do perfil em background e sincroniza com o CRM
+  // Notifica o painel em tempo real
+  notificarPainel({ tipo: "mensagem", numero, role: "assistant", content: resposta, ts: Date.now() });
+
+  // Extrai perfil em background e sincroniza CRM
   extrairPerfil(memoria[numero].historico, memoria[numero].perfil).then(
     async (novoPerfil) => {
       const mem = carregarMemoria();
       if (mem[numero]) {
         mem[numero].perfil = novoPerfil;
         await salvarMemoria(mem);
-        // Envia/atualiza lead no CRM
         sincronizarLeadCRM(numero, novoPerfil).catch(() => {});
+        notificarPainel({ tipo: "perfil", numero, perfil: novoPerfil });
       }
     }
   );
@@ -303,16 +334,14 @@ async function enviarMensagem(para, texto) {
 }
 
 const RESPOSTAS_MIDIA = {
-  audio:
-    "Recebi seu áudio! Infelizmente ainda não consigo ouvir mensagens de voz. Pode me escrever sua dúvida?",
-  image:
-    "Recebi sua imagem! Por enquanto funciono melhor com texto. O que você gostaria de saber?",
+  audio: "Recebi seu áudio! Infelizmente ainda não consigo ouvir mensagens de voz. Pode me escrever sua dúvida?",
+  image: "Recebi sua imagem! Por enquanto funciono melhor com texto. O que você gostaria de saber?",
   document: "Recebi seu documento! Me escreve o que você precisa.",
   sticker: "😊 Me conta, como posso te ajudar?",
   location: "Recebi sua localização! Me conta o que você está procurando.",
 };
 
-// ─── Rotas ────────────────────────────────────────────────────────────────────
+// ─── Rotas principais ─────────────────────────────────────────────────────────
 
 app.get("/", (req, res) => {
   res.send("Chatbot R2X funcionando 🚀");
@@ -322,14 +351,12 @@ app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
-
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     return res.status(200).send(challenge);
   }
   return res.sendStatus(403);
 });
 
-// Teste manual via curl
 app.post("/chat", async (req, res) => {
   try {
     const { mensagem, numero = "teste" } = req.body;
@@ -341,7 +368,6 @@ app.post("/chat", async (req, res) => {
   }
 });
 
-// Consulta perfil de um lead
 app.get("/lead/:numero", (req, res) => {
   const memoria = carregarMemoria();
   const lead = memoria[req.params.numero];
@@ -356,23 +382,17 @@ app.get("/lead/:numero", (req, res) => {
 // Webhook do WhatsApp
 app.post("/webhook", async (req, res) => {
   try {
-    const message =
-      req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-
+    const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!message) return res.sendStatus(200);
 
-    // Ignora mensagem duplicada
     if (mensagensProcessadas.has(message.id)) return res.sendStatus(200);
     mensagensProcessadas.add(message.id);
     setTimeout(() => mensagensProcessadas.delete(message.id), 3_600_000);
 
     const from = message.from;
 
-    // Mensagens não-texto (áudio, imagem, etc.)
     if (message.type !== "text") {
-      const fallback =
-        RESPOSTAS_MIDIA[message.type] ||
-        "Recebi sua mensagem! Pode me escrever o que você precisa?";
+      const fallback = RESPOSTAS_MIDIA[message.type] || "Recebi sua mensagem! Pode me escrever o que você precisa?";
       await enviarMensagem(from, fallback);
       return res.sendStatus(200);
     }
@@ -380,7 +400,23 @@ app.post("/webhook", async (req, res) => {
     const texto = message.text?.body || "";
     console.log(`[${new Date().toLocaleTimeString()}] ${from}: ${texto}`);
 
-    // Delay humano de 2 a 4 segundos antes de responder
+    // Notifica o painel que chegou mensagem do lead
+    notificarPainel({ tipo: "mensagem", numero: from, role: "user", content: texto, ts: Date.now() });
+
+    // Se a conversa está pausada (Ramon assumiu), não responde automaticamente
+    const memoriaAtual = carregarMemoria();
+    if (memoriaAtual[from]?.pausado) {
+      // Salva a mensagem no histórico mas não responde
+      if (!memoriaAtual[from].historico) memoriaAtual[from].historico = [];
+      memoriaAtual[from].historico.push({ role: "user", content: texto });
+      if (memoriaAtual[from].historico.length > 30) {
+        memoriaAtual[from].historico = memoriaAtual[from].historico.slice(-30);
+      }
+      await salvarMemoria(memoriaAtual);
+      return res.sendStatus(200);
+    }
+
+    // Delay humano de 2 a 4 segundos
     await new Promise((r) => setTimeout(r, 2000 + Math.random() * 2000));
 
     const resposta = await gerarResposta(from, texto);
@@ -392,6 +428,104 @@ app.post("/webhook", async (req, res) => {
     return res.sendStatus(500);
   }
 });
+
+// ─── PAINEL DE MONITORAMENTO (API para o CRM) ────────────────────────────────
+
+// GET /painel/conversas — lista todas as conversas
+app.get("/painel/conversas", (req, res) => {
+  if (!autenticarPainel(req, res)) return;
+  const memoria = carregarMemoria();
+  const conversas = Object.entries(memoria)
+    .map(([numero, dados]) => {
+      const hist = dados.historico || [];
+      const ultima = hist[hist.length - 1] || null;
+      return {
+        numero,
+        nome: dados.perfil?.nome || null,
+        cidade: dados.perfil?.cidade || null,
+        empreendimento: dados.perfil?.empreendimento_interesse || null,
+        pausado: dados.pausado || false,
+        total: hist.length,
+        ultima_role: ultima?.role || null,
+        ultima_msg: ultima ? ultima.content.slice(0, 100) : null,
+        ultima_ts: dados.ultima_ts || null,
+      };
+    })
+    .sort((a, b) => (b.ultima_ts || 0) - (a.ultima_ts || 0));
+  res.json({ conversas });
+});
+
+// GET /painel/conversa/:numero — histórico completo
+app.get("/painel/conversa/:numero", (req, res) => {
+  if (!autenticarPainel(req, res)) return;
+  const memoria = carregarMemoria();
+  const dados = memoria[req.params.numero];
+  if (!dados) return res.status(404).json({ erro: "Conversa não encontrada" });
+  res.json({
+    numero: req.params.numero,
+    perfil: dados.perfil,
+    pausado: dados.pausado || false,
+    historico: dados.historico || [],
+  });
+});
+
+// POST /painel/assumir/:numero — toggle assumir/devolver
+app.post("/painel/assumir/:numero", async (req, res) => {
+  if (!autenticarPainel(req, res)) return;
+  const memoria = carregarMemoria();
+  const numero = req.params.numero;
+  if (!memoria[numero]) return res.status(404).json({ erro: "Conversa não encontrada" });
+  memoria[numero].pausado = !memoria[numero].pausado;
+  await salvarMemoria(memoria);
+  notificarPainel({ tipo: "status", numero, pausado: memoria[numero].pausado });
+  res.json({ pausado: memoria[numero].pausado });
+});
+
+// POST /painel/enviar — Ramon envia mensagem diretamente
+app.post("/painel/enviar", async (req, res) => {
+  if (!autenticarPainel(req, res)) return;
+  const { numero, mensagem } = req.body;
+  if (!numero || !mensagem) return res.status(400).json({ erro: "numero e mensagem obrigatórios" });
+
+  await enviarMensagem(numero, mensagem);
+
+  // Salva no histórico com tag [RAMON]
+  const memoria = carregarMemoria();
+  if (!memoria[numero]) memoria[numero] = { historico: [], perfil: perfilVazio(), pausado: true };
+  memoria[numero].historico.push({ role: "assistant", content: `[RAMON]: ${mensagem}` });
+  memoria[numero].ultima_ts = Date.now();
+  if (memoria[numero].historico.length > 30) {
+    memoria[numero].historico = memoria[numero].historico.slice(-30);
+  }
+  await salvarMemoria(memoria);
+
+  notificarPainel({ tipo: "mensagem", numero, role: "ramon", content: mensagem, ts: Date.now() });
+  res.json({ ok: true });
+});
+
+// GET /painel/stream — SSE tempo real
+app.get("/painel/stream", (req, res) => {
+  if (!autenticarPainel(req, res)) return;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.write(`data: ${JSON.stringify({ tipo: "conectado" })}\n\n`);
+
+  const id = `${Date.now()}-${Math.random()}`;
+  painelClients.set(id, res);
+
+  // Keepalive a cada 25s
+  const ping = setInterval(() => {
+    try { res.write(": ping\n\n"); } catch { clearInterval(ping); }
+  }, 25000);
+
+  req.on("close", () => {
+    painelClients.delete(id);
+    clearInterval(ping);
+  });
+});
+
+// ─── Start ────────────────────────────────────────────────────────────────────
 
 app.listen(3000, () => {
   console.log("Servidor rodando na porta 3000 🚀");
