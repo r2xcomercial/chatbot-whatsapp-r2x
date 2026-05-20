@@ -198,6 +198,13 @@ Se NÃO (só conversa, teste, pergunta ou simulação): responda apenas: NENHUMA
 
 // Gera resposta da Débora no modo dono (conversa com o Ramon)
 async function gerarRespostaDono(numero, mensagem) {
+  // Detecta comandos especiais do dono
+  if (/^(disparo|broadcast)\s*:/i.test(mensagem.trim())) {
+    const msgDisparo = mensagem.replace(/^(disparo|broadcast)\s*:\s*/i, "").trim();
+    if (!msgDisparo) return "❗ Escreva a mensagem após o comando. Ex:\n*disparo: Boa notícia! As reservas VIP abriram.*";
+    return await executarBroadcast(msgDisparo);
+  }
+
   const memoria = carregarMemoria();
   if (!memoria[numero]) memoria[numero] = { historico: [], perfil: {}, pausado: false };
 
@@ -353,10 +360,12 @@ Retorne JSON com os campos identificados (null para os não encontrados):
   "nome": null,
   "cidade": null,
   "objetivo": null,
+  "tipo": null,
   "faixa_investimento": null,
   "prazo": null,
   "empreendimento_interesse": null
-}`;
+}
+Obs: "tipo" deve ser "cliente" se é comprador/investidor final, ou "corretor" se é agente imobiliário.`;
 
   try {
     const result = await openai.chat.completions.create({
@@ -388,6 +397,7 @@ async function gerarResposta(numero, mensagem) {
   }
 
   memoria[numero].historico.push({ role: "user", content: mensagem });
+  memoria[numero].ultima_ts = Date.now();
 
   const perfilTexto =
     Object.entries(memoria[numero].perfil)
@@ -440,6 +450,7 @@ function perfilVazio() {
     nome: null,
     cidade: null,
     objetivo: null,
+    tipo: null, // "cliente" | "corretor"
     faixa_investimento: null,
     prazo: null,
     empreendimento_interesse: null,
@@ -506,6 +517,273 @@ async function transcreverAudio(mediaId) {
   }
 }
 
+// ─── Catálogo de mídias ───────────────────────────────────────────────────────
+
+const MIDIAS_FILE = "midias.json";
+
+function carregarMidias() {
+  try {
+    return JSON.parse(fs.readFileSync(MIDIAS_FILE, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+// ─── Download de imagem da Meta (base64) ─────────────────────────────────────
+
+async function baixarMidiaBase64(mediaId) {
+  const metaRes = await fetch(`https://graph.facebook.com/v25.0/${mediaId}`, {
+    headers: { Authorization: `Bearer ${META_TOKEN}` },
+  });
+  const metaData = await metaRes.json();
+  if (!metaData.url) throw new Error("URL de mídia não encontrada");
+
+  const imgRes = await fetch(metaData.url, {
+    headers: { Authorization: `Bearer ${META_TOKEN}` },
+  });
+  const buffer = Buffer.from(await imgRes.arrayBuffer());
+  return { base64: buffer.toString("base64"), mimeType: metaData.mime_type || "image/jpeg" };
+}
+
+// ─── Análise de imagem com GPT-4o Vision ─────────────────────────────────────
+
+async function analisarImagem(mediaId, historicoRecente) {
+  const { base64, mimeType } = await baixarMidiaBase64(mediaId);
+
+  const contexto = (historicoRecente || [])
+    .slice(-6)
+    .map((m) => `${m.role === "user" ? "Lead" : "Débora"}: ${m.content}`)
+    .join("\n");
+
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o",
+    max_tokens: 400,
+    messages: [
+      {
+        role: "system",
+        content: `Você é Débora Machado, consultora de vendas da R2X Inteligência Comercial.
+Analise a imagem enviada e responda de forma natural e concisa (máximo 3-4 linhas), conectando ao contexto imobiliário.
+- Planta/projeto: descreva ambientes, metragem aparente, pontos positivos
+- Foto de imóvel/terreno: comente estilo, estado, localização
+- Documento (RG, CPF, comprovante): reconheça brevemente e diga que repassa à equipe técnica
+- Outro: seja natural e conecte ao interesse do lead
+Nunca revele que é IA. Use português brasileiro natural.${contexto ? `\n\nContexto recente:\n${contexto}` : ""}`,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
+          { type: "text", text: "Analise essa imagem no contexto da nossa conversa." },
+        ],
+      },
+    ],
+  });
+
+  return completion.choices[0].message.content;
+}
+
+// ─── Envio de mídia (documentos e imagens) ────────────────────────────────────
+
+async function enviarDocumento(para, urlPublica, nomeArquivo, caption = "") {
+  await fetch(`https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${META_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to: para,
+      type: "document",
+      document: { link: urlPublica, filename: nomeArquivo, caption },
+    }),
+  });
+}
+
+async function enviarImagemMidia(para, urlPublica, caption = "") {
+  await fetch(`https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${META_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to: para,
+      type: "image",
+      image: { link: urlPublica, caption },
+    }),
+  });
+}
+
+// ─── Botões interativos ───────────────────────────────────────────────────────
+
+async function enviarBotoes(para, texto, botoes) {
+  await fetch(`https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${META_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to: para,
+      type: "interactive",
+      interactive: {
+        type: "button",
+        body: { text: texto },
+        action: {
+          buttons: botoes.slice(0, 3).map((b) => ({
+            type: "reply",
+            reply: { id: b.id, title: b.title.slice(0, 20) },
+          })),
+        },
+      },
+    }),
+  });
+}
+
+// Momentos de qualificação que merecem botões
+const MOMENTOS_BOTOES = [
+  {
+    regex: /\bmorar\b|\binvestir\b|\bobjetivo\b|\bfinalidade\b/i,
+    campo: "objetivo",
+    texto: "Qual é o seu objetivo principal?",
+    botoes: [
+      { id: "obj_morar", title: "🏠 Morar" },
+      { id: "obj_investir", title: "📈 Investir" },
+      { id: "obj_ambos", title: "Os dois" },
+    ],
+  },
+  {
+    regex: /\bcorretor\b|\bcliente final\b|\bvocê é corretor\b/i,
+    campo: "tipo",
+    texto: "Como você se identifica?",
+    botoes: [
+      { id: "tipo_cliente", title: "👤 Sou cliente" },
+      { id: "tipo_corretor", title: "🏢 Sou corretor" },
+    ],
+  },
+  {
+    regex: /\boslo\b.*\bbelvedere\b|\bbelvedere\b.*\boslo\b|\bqual empreendimento\b|\bqual lançamento\b/i,
+    campo: "empreendimento_interesse",
+    texto: "Qual empreendimento te interessa mais?",
+    botoes: [
+      { id: "emp_oslo", title: "Oslo Home Family" },
+      { id: "emp_belvedere", title: "Belvedere" },
+      { id: "emp_outro", title: "Quero saber mais" },
+    ],
+  },
+];
+
+async function verificarEEnviarBotoes(para, resposta, perfil) {
+  for (const momento of MOMENTOS_BOTOES) {
+    if (perfil?.[momento.campo]) continue; // já tem essa info
+    if (momento.regex.test(resposta)) {
+      try {
+        await new Promise((r) => setTimeout(r, 1000));
+        await enviarBotoes(para, momento.texto, momento.botoes);
+      } catch (e) {
+        console.error("[BOTÕES]", e.message);
+      }
+      return; // só um conjunto de botões por vez
+    }
+  }
+}
+
+// ─── Envio automático de mídia contextual ────────────────────────────────────
+
+async function verificarEnvioAutoMidia(para, resposta, perfil) {
+  try {
+    if (!/folder|material|apresenta[çc]|te mando|vou mandar|aqui está/i.test(resposta)) return;
+    const midias = carregarMidias();
+    const emp = (perfil?.empreendimento_interesse || "").toLowerCase();
+    const midiaId = emp.includes("belvedere") ? "folder-belvedere" : "folder-oslo";
+    const midia = midias[midiaId];
+    if (!midia) return;
+    await new Promise((r) => setTimeout(r, 1500));
+    if (midia.tipo === "document") await enviarDocumento(para, midia.url, midia.nome, midia.caption);
+    else if (midia.tipo === "image") await enviarImagemMidia(para, midia.url, midia.caption);
+    console.log(`[MÍDIA AUTO] ${midiaId} → ${para}`);
+  } catch (e) {
+    console.error("[MÍDIA AUTO]", e.message);
+  }
+}
+
+// ─── Disparo em massa (broadcast) ────────────────────────────────────────────
+
+async function executarBroadcast(mensagem) {
+  const memoria = carregarMemoria();
+  const leads = Object.entries(memoria).filter(([num, dados]) => {
+    if (DONO_NUMERO && num === DONO_NUMERO) return false;
+    if (dados.pausado) return false;
+    return (dados.historico || []).length > 0;
+  });
+
+  let enviados = 0;
+  let erros = 0;
+
+  for (const [numero, dados] of leads) {
+    const nome = dados.perfil?.nome || "";
+    const msg = mensagem.replace(/\{NOME\}/gi, nome).trim();
+    try {
+      await enviarMensagem(numero, msg);
+      enviados++;
+      await new Promise((r) => setTimeout(r, 1500)); // evitar rate limit
+    } catch {
+      erros++;
+    }
+  }
+
+  return `Disparo concluído ✅\n• ${enviados} mensagem(ns) enviada(s)${erros > 0 ? `\n• ${erros} com erro` : ""}`;
+}
+
+// ─── Follow-up automático ─────────────────────────────────────────────────────
+
+const FOLLOWUP_MAX = 2;
+const FOLLOWUP_INTERVALO_MS = 24 * 3_600_000; // 24 horas de inatividade
+
+const MENSAGENS_FOLLOWUP = [
+  "Oi{NOME}! A gente conversou sobre nossos lançamentos e queria saber se ficou alguma dúvida 😊 Posso te ajudar?",
+  "Olá{NOME}! O interesse no Oslo Home Family continua crescendo e as vagas do grupo VIP são limitadas. Ainda dá tempo de garantir a sua — me fala!",
+];
+
+async function verificarFollowUps() {
+  try {
+    const memoria = carregarMemoria();
+    const agora = Date.now();
+    let alterou = false;
+
+    for (const [numero, dados] of Object.entries(memoria)) {
+      if (DONO_NUMERO && numero === DONO_NUMERO) continue;
+      if (dados.pausado) continue;
+      if (!dados.ultima_ts) continue;
+
+      const followupCount = dados.followup_count || 0;
+      if (followupCount >= FOLLOWUP_MAX) continue;
+      if (agora - dados.ultima_ts < FOLLOWUP_INTERVALO_MS) continue;
+
+      const ultimoFollowup = dados.ultimo_followup_ts || 0;
+      if (agora - ultimoFollowup < FOLLOWUP_INTERVALO_MS) continue;
+
+      // Só faz follow-up em leads com interação real
+      const hist = dados.historico || [];
+      const temInteresse = dados.perfil?.nome || dados.perfil?.objetivo || hist.length >= 3;
+      if (!temInteresse) continue;
+
+      const template = MENSAGENS_FOLLOWUP[followupCount] ?? MENSAGENS_FOLLOWUP.at(-1);
+      const nome = dados.perfil?.nome ? ` ${dados.perfil.nome.split(" ")[0]}` : "";
+      const msg = template.replace("{NOME}", nome);
+
+      try {
+        await enviarMensagem(numero, msg);
+        memoria[numero].followup_count = followupCount + 1;
+        memoria[numero].ultimo_followup_ts = agora;
+        alterou = true;
+        console.log(`[FOLLOW-UP] ${numero} — msg ${followupCount + 1}/${FOLLOWUP_MAX}`);
+        await new Promise((r) => setTimeout(r, 2000));
+      } catch (e) {
+        console.error(`[FOLLOW-UP] Erro ${numero}:`, e.message);
+      }
+    }
+
+    if (alterou) await salvarMemoria(memoria);
+  } catch (e) {
+    console.error("[FOLLOW-UP] Erro geral:", e.message);
+  }
+}
+
 // ─── Rotas principais ─────────────────────────────────────────────────────────
 
 app.get("/", (req, res) => {
@@ -556,6 +834,14 @@ app.post("/webhook", async (req, res) => {
 
     const from = message.from;
 
+    // Botões interativos: converte reply para texto antes de processar
+    if (message.type === "interactive") {
+      const reply = message.interactive?.button_reply || message.interactive?.list_reply;
+      if (!reply?.title) return res.sendStatus(200);
+      message.type = "text";
+      message.text = { body: reply.title };
+    }
+
     // Áudio: transcreve com Whisper e processa como texto
     if (message.type === "audio") {
       const mediaId = message.audio?.id;
@@ -574,6 +860,29 @@ app.post("/webhook", async (req, res) => {
       message.type = "text";
       message.text = { body: texto };
       message._transcrito = true;
+    }
+
+    // Imagem: analisa com GPT-4o Vision
+    if (message.type === "image") {
+      const mediaId = message.image?.id;
+      let respostaImg = RESPOSTAS_MIDIA.image;
+      try {
+        const memVision = carregarMemoria();
+        respostaImg = await analisarImagem(mediaId, memVision[from]?.historico || []);
+      } catch (e) {
+        console.error("[IMAGEM] Erro na análise:", e.message);
+      }
+      const memImg = carregarMemoria();
+      if (!memImg[from]) memImg[from] = { historico: [], perfil: perfilVazio(), pausado: false };
+      memImg[from].historico.push({ role: "user", content: "[enviou uma imagem]" });
+      memImg[from].historico.push({ role: "assistant", content: respostaImg });
+      memImg[from].ultima_ts = Date.now();
+      if (memImg[from].historico.length > 30) memImg[from].historico = memImg[from].historico.slice(-30);
+      await salvarMemoria(memImg);
+      notificarPainel({ tipo: "mensagem", numero: from, role: "user", content: "[imagem]", ts: Date.now() });
+      notificarPainel({ tipo: "mensagem", numero: from, role: "assistant", content: respostaImg, ts: Date.now() });
+      await enviarMensagem(from, respostaImg);
+      return res.sendStatus(200);
     }
 
     if (message.type !== "text") {
@@ -601,6 +910,7 @@ app.post("/webhook", async (req, res) => {
     if (memoriaAtual[from]?.pausado) {
       if (!memoriaAtual[from].historico) memoriaAtual[from].historico = [];
       memoriaAtual[from].historico.push({ role: "user", content: texto });
+      memoriaAtual[from].ultima_ts = Date.now();
       if (memoriaAtual[from].historico.length > 30) {
         memoriaAtual[from].historico = memoriaAtual[from].historico.slice(-30);
       }
@@ -613,6 +923,12 @@ app.post("/webhook", async (req, res) => {
 
     const resposta = await gerarResposta(from, texto);
     await enviarMensagem(from, resposta);
+
+    // Botões interativos e mídia automática (em background, sem bloquear o retorno)
+    const memPos = carregarMemoria();
+    const perfilPos = memPos[from]?.perfil || {};
+    verificarEEnviarBotoes(from, resposta, perfilPos).catch(() => {});
+    verificarEnvioAutoMidia(from, resposta, perfilPos).catch(() => {});
 
     return res.sendStatus(200);
   } catch (error) {
@@ -716,6 +1032,97 @@ app.get("/painel/stream", (req, res) => {
     clearInterval(ping);
   });
 });
+
+// POST /painel/broadcast — disparo em massa via painel
+app.post("/painel/broadcast", async (req, res) => {
+  if (!autenticarPainel(req, res)) return;
+  const { mensagem } = req.body;
+  if (!mensagem) return res.status(400).json({ erro: "mensagem obrigatória" });
+
+  // Executa em background e notifica pelo SSE quando terminar
+  executarBroadcast(mensagem)
+    .then((resultado) => notificarPainel({ tipo: "broadcast_concluido", resultado }))
+    .catch((e) => console.error("[BROADCAST]", e.message));
+
+  res.json({ ok: true, msg: "Disparo iniciado — você será notificado quando concluir." });
+});
+
+// GET /painel/midias — lista catálogo de mídias
+app.get("/painel/midias", (req, res) => {
+  if (!autenticarPainel(req, res)) return;
+  res.json(carregarMidias());
+});
+
+// POST /painel/midias — cadastra/atualiza uma mídia
+app.post("/painel/midias", (req, res) => {
+  if (!autenticarPainel(req, res)) return;
+  const { id, tipo, url, nome, caption } = req.body;
+  if (!id || !tipo || !url) return res.status(400).json({ erro: "id, tipo e url são obrigatórios" });
+  const midias = carregarMidias();
+  midias[id] = { tipo, url, nome: nome || id, caption: caption || "" };
+  fs.writeFileSync(MIDIAS_FILE, JSON.stringify(midias, null, 2), "utf8");
+  res.json({ ok: true });
+});
+
+// POST /painel/enviar-midia — Ramon envia mídia diretamente para um lead
+app.post("/painel/enviar-midia", async (req, res) => {
+  if (!autenticarPainel(req, res)) return;
+  const { numero, midia_id } = req.body;
+  if (!numero || !midia_id) return res.status(400).json({ erro: "numero e midia_id obrigatórios" });
+
+  const midias = carregarMidias();
+  const midia = midias[midia_id];
+  if (!midia) return res.status(404).json({ erro: "Mídia não cadastrada" });
+
+  try {
+    if (midia.tipo === "document") await enviarDocumento(numero, midia.url, midia.nome, midia.caption);
+    else if (midia.tipo === "image") await enviarImagemMidia(numero, midia.url, midia.caption);
+    else return res.status(400).json({ erro: "Tipo não suportado" });
+
+    // Registra no histórico
+    const memoria = carregarMemoria();
+    if (memoria[numero]) {
+      memoria[numero].historico.push({ role: "assistant", content: `[MÍDIA: ${midia.nome || midia_id}]` });
+      memoria[numero].ultima_ts = Date.now();
+      await salvarMemoria(memoria);
+    }
+    notificarPainel({ tipo: "midia_enviada", numero, midia_id, nome: midia.nome });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+// GET /painel/stats — estatísticas gerais
+app.get("/painel/stats", (req, res) => {
+  if (!autenticarPainel(req, res)) return;
+  const memoria = carregarMemoria();
+  const leads = Object.entries(memoria).filter(([num]) => !DONO_NUMERO || num !== DONO_NUMERO);
+  const agora = Date.now();
+  const dia = 86_400_000;
+
+  res.json({
+    total_leads: leads.length,
+    ativos_24h: leads.filter(([, d]) => d.ultima_ts && agora - d.ultima_ts < dia).length,
+    pausados: leads.filter(([, d]) => d.pausado).length,
+    com_nome: leads.filter(([, d]) => d.perfil?.nome).length,
+    por_objetivo: leads.reduce((acc, [, d]) => {
+      const obj = d.perfil?.objetivo || "desconhecido";
+      acc[obj] = (acc[obj] || 0) + 1;
+      return acc;
+    }, {}),
+    por_empreendimento: leads.reduce((acc, [, d]) => {
+      const emp = d.perfil?.empreendimento_interesse || "desconhecido";
+      acc[emp] = (acc[emp] || 0) + 1;
+      return acc;
+    }, {}),
+  });
+});
+
+// ─── Follow-up automático: roda de hora em hora ───────────────────────────────
+
+setInterval(verificarFollowUps, 3_600_000);
+setTimeout(verificarFollowUps, 5 * 60_000); // primeira rodada após 5 min do start
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 

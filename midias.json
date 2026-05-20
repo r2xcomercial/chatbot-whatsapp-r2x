@@ -1,0 +1,19 @@
+{
+  "folder-oslo": {
+    "tipo": "document",
+    "url": "",
+    "nome": "Oslo Home Family - Folder.pdf",
+    "caption": "Folder completo do Oslo Home Family 🏢"
+  },
+  "folder-belvedere": {
+    "tipo": "document",
+    "url": "",
+    "nome": "Belvedere - Folder.pdf",
+    "caption": "Folder completo do Belvedere 🌳"
+  },
+  "logo-r2x": {
+    "tipo": "image",
+    "url": "",
+    "caption": "R2X Inteligência Comercial"
+  }
+}
