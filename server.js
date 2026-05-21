@@ -14,7 +14,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "r2x123";
 const CRM_URL = process.env.CRM_URL || process.env.URL_CRM || "http://localhost:4000";
 const PAINEL_TOKEN = process.env.PAINEL_TOKEN || "r2x@painel2026";
-const DONO_NUMERO = process.env.DONO_NUMERO || ""; // número do Ramon no formato 5548XXXXXXXXX
+const DONO_NUMERO = (process.env.DONO_NUMERO || "").replace(/\D/g, "").trim(); // normalizado: só dígitos
 const INSTRUCOES_FILE = "conhecimento/instrucoes-dono.txt";
 
 // ─── CORS para o CRM R2X ──────────────────────────────────────────────────────
@@ -749,7 +749,7 @@ async function verificarEnvioAutoMidia(para, resposta, perfil) {
 async function executarBroadcast(mensagem) {
   const memoria = carregarMemoria();
   const leads = Object.entries(memoria).filter(([num, dados]) => {
-    if (DONO_NUMERO && num === DONO_NUMERO) return false;
+    if (DONO_NUMERO && num.replace(/\D/g,"") === DONO_NUMERO) return false;
     if (dados.pausado) return false;
     return (dados.historico || []).length > 0;
   });
@@ -789,7 +789,7 @@ async function verificarFollowUps() {
     let alterou = false;
 
     for (const [numero, dados] of Object.entries(memoria)) {
-      if (DONO_NUMERO && numero === DONO_NUMERO) continue;
+      if (DONO_NUMERO && numero.replace(/\D/g,"") === DONO_NUMERO) continue;
       if (dados.pausado) continue;
       if (!dados.ultima_ts) continue;
 
@@ -875,7 +875,8 @@ app.post("/webhook", async (req, res) => {
     mensagensProcessadas.add(message.id);
     setTimeout(() => mensagensProcessadas.delete(message.id), 3_600_000);
 
-    const from = message.from;
+    const from = (message.from || "").replace(/\D/g, "").trim();
+    console.log(`[webhook] from="${from}" DONO_NUMERO="${DONO_NUMERO}" isDono=${DONO_NUMERO && from === DONO_NUMERO}`);
 
     // Botões interativos: converte reply para texto antes de processar
     if (message.type === "interactive") {
@@ -1140,7 +1141,7 @@ app.post("/painel/enviar-midia", async (req, res) => {
 app.get("/painel/stats", (req, res) => {
   if (!autenticarPainel(req, res)) return;
   const memoria = carregarMemoria();
-  const leads = Object.entries(memoria).filter(([num]) => !DONO_NUMERO || num !== DONO_NUMERO);
+  const leads = Object.entries(memoria).filter(([num]) => !DONO_NUMERO || num.replace(/\D/g,"") !== DONO_NUMERO);
   const agora = Date.now();
   const dia = 86_400_000;
 
