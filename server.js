@@ -377,6 +377,11 @@ ADAPTAÇÃO POR TIPO (obrigatório):
 - Se perfil mostrar "tipo: corretor" → use EXCLUSIVAMENTE o FLUXO PARA CORRETOR acima
 - Se perfil mostrar "tipo: cliente" → use EXCLUSIVAMENTE o FLUXO PARA CLIENTE FINAL acima
 - Se tipo ainda não identificado → identifique pelo contexto antes de prosseguir
+
+PREVISÃO DO TEMPO:
+- Se aparecer um bloco [DADOS EM TEMPO REAL] com previsão do tempo, use esses dados para responder com naturalidade
+- Responda de forma humana e simpática, como alguém que também vive naquela cidade
+- Após responder sobre o tempo, redirecione suavemente para o interesse imobiliário do lead se houver contexto para isso
 `;
 
 // ─── Extração de perfil estruturado ──────────────────────────────────────────
@@ -447,9 +452,20 @@ async function gerarResposta(numero, mensagem) {
       .map(([k, v]) => `${k}: ${v}`)
       .join(", ") || "nenhum dado coletado ainda";
 
-  const systemPrompt = CEREBRO_R2X
+  // Previsão do tempo: injeta dados reais se a mensagem for sobre clima
+  let contextoTempo = "";
+  if (TEMPO_REGEX.test(mensagem)) {
+    const cidadeLead = memoria[numero].perfil?.cidade || null;
+    // Tenta extrair cidade da própria mensagem (ex: "tempo em Florianópolis")
+    const matchCidade = mensagem.match(/\bem\s+([A-ZÀ-Ú][a-zA-ZÀ-ú\s]+?)(?:\?|$|,)/i);
+    const cidadeBusca = matchCidade?.[1]?.trim() || cidadeLead || "Brasil";
+    const previsao = await buscarPrevisaoTempo(cidadeBusca);
+    if (previsao) contextoTempo = `\n\n[DADOS EM TEMPO REAL]\n${previsao}`;
+  }
+
+  const systemPrompt = (CEREBRO_R2X
     .replace("{CONHECIMENTO}", carregarConhecimento() || "nenhum empreendimento cadastrado")
-    .replace("{PERFIL}", perfilTexto);
+    .replace("{PERFIL}", perfilTexto)) + contextoTempo;
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -557,6 +573,44 @@ async function transcreverAudio(mediaId) {
     return transcription.text?.trim() || "";
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}
+  }
+}
+
+// ─── Previsão do tempo (wttr.in) ─────────────────────────────────────────────
+
+const TEMPO_REGEX = /\b(tempo|previs[aã]o|clima|chuva|calor|frio|temperatura|vai chover|t[aá] chovendo|sol hoje|tempo hoje|como (est[aá]|fica) o tempo)\b/i;
+
+async function buscarPrevisaoTempo(cidade) {
+  try {
+    const url = `https://wttr.in/${encodeURIComponent(cidade)}?format=j1&lang=pt`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const atual = d.current_condition?.[0];
+    const hoje  = d.weather?.[0];
+    const amanha = d.weather?.[1];
+    if (!atual || !hoje) return null;
+
+    const desc = atual.lang_pt?.[0]?.value || atual.weatherDesc?.[0]?.value || "–";
+    const temp  = atual.temp_C;
+    const sens  = atual.FeelsLikeC;
+    const umid  = atual.humidity;
+    const vento = atual.windspeedKmph;
+
+    const maxH  = hoje.maxtempC;
+    const minH  = hoje.mintempC;
+    const chuvaH = hoje.hourly?.reduce((acc, h) => acc + parseFloat(h.precipMM || 0), 0).toFixed(1);
+
+    const maxA  = amanha?.maxtempC;
+    const minA  = amanha?.mintempC;
+    const descA = amanha?.hourly?.[4]?.lang_pt?.[0]?.value || amanha?.hourly?.[4]?.weatherDesc?.[0]?.value || "–";
+
+    return `PREVISÃO DO TEMPO — ${cidade.toUpperCase()}:
+Agora: ${desc}, ${temp}°C (sensação ${sens}°C), umidade ${umid}%, vento ${vento} km/h
+Hoje: máx ${maxH}°C / mín ${minH}°C, chuva acumulada ~${chuvaH}mm
+Amanhã: ${descA}, máx ${maxA}°C / mín ${minA}°C`;
+  } catch {
+    return null;
   }
 }
 
