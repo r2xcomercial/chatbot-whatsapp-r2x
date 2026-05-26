@@ -86,7 +86,7 @@ async function gerarResumoLead(historico, perfil) {
 async function sincronizarLeadCRM(telefone, perfil, historico = []) {
   const score = calcularScore(perfil);
   const resumo = await gerarResumoLead(historico, perfil).catch(() => null);
-  await fetch(`${CRM_URL}/api/leads/whatsapp`, {
+  const r = await fetch(`${CRM_URL}/api/leads/whatsapp`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -102,6 +102,21 @@ async function sincronizarLeadCRM(telefone, perfil, historico = []) {
       resumo,
     }),
   });
+
+  // Notifica o dono via WhatsApp quando um novo lead é criado
+  if (DONO_NUMERO) {
+    try {
+      const dados = await r.json().catch(() => ({}));
+      if (dados.criado) {
+        const nome = perfil.nome || "Sem nome";
+        const emp  = perfil.empreendimento_interesse || "—";
+        const obj  = perfil.objetivo || "—";
+        const tel  = telefone.replace(/^55/, '');
+        const msg  = `🆕 *Novo lead no CRM!*\n👤 ${nome}\n📱 ${tel}\n🏗️ ${emp}\n🎯 ${obj}\n⭐ Score: ${score}`;
+        await enviarMensagem(DONO_NUMERO, msg);
+      }
+    } catch (_) { /* notificação é best-effort */ }
+  }
 }
 
 const META_TOKEN = process.env.META_ACCESS_TOKEN;
@@ -245,7 +260,7 @@ async function gerarRespostaDono(numero, mensagem) {
   const memoria = carregarMemoria();
   if (!memoria[numero]) memoria[numero] = { historico: [], perfil: {}, pausado: false };
 
-  memoria[numero].historico.push({ role: "user", content: mensagem });
+  memoria[numero].historico.push({ role: "user", content: mensagem, ts: Date.now() });
   if (memoria[numero].historico.length > 40) {
     memoria[numero].historico = memoria[numero].historico.slice(-40);
   }
@@ -280,11 +295,12 @@ ${conhecimento}`;
   });
 
   const resposta = completion.choices[0].message.content;
-  memoria[numero].historico.push({ role: "assistant", content: resposta });
+  const tsAgora = Date.now();
+  memoria[numero].historico.push({ role: "assistant", content: resposta, ts: tsAgora });
   await salvarMemoria(memoria);
 
-  notificarPainel({ tipo: "mensagem", numero, role: "user", content: mensagem, ts: Date.now() });
-  notificarPainel({ tipo: "mensagem", numero, role: "assistant", content: resposta, ts: Date.now() });
+  notificarPainel({ tipo: "mensagem", numero, role: "user", content: mensagem, ts: tsAgora });
+  notificarPainel({ tipo: "mensagem", numero, role: "assistant", content: resposta, ts: tsAgora });
 
   // Analisa em background se há instrução nova para salvar
   extrairInstrucaoDono(mensagem, resposta).catch(() => {});
@@ -444,7 +460,7 @@ async function gerarResposta(numero, mensagem) {
     memoria[numero].perfil = perfilVazio();
   }
 
-  memoria[numero].historico.push({ role: "user", content: mensagem });
+  memoria[numero].historico.push({ role: "user", content: mensagem, ts: Date.now() });
   memoria[numero].ultima_ts = Date.now();
 
   const perfilTexto =
@@ -477,7 +493,7 @@ async function gerarResposta(numero, mensagem) {
   });
 
   const resposta = completion.choices[0].message.content;
-  memoria[numero].historico.push({ role: "assistant", content: resposta });
+  memoria[numero].historico.push({ role: "assistant", content: resposta, ts: Date.now() });
 
   if (memoria[numero].historico.length > 30) {
     memoria[numero].historico = memoria[numero].historico.slice(-30);
@@ -973,8 +989,8 @@ app.post("/webhook", async (req, res) => {
       }
       const memImg = carregarMemoria();
       if (!memImg[from]) memImg[from] = { historico: [], perfil: perfilVazio(), pausado: false };
-      memImg[from].historico.push({ role: "user", content: "[enviou uma imagem]" });
-      memImg[from].historico.push({ role: "assistant", content: respostaImg });
+      memImg[from].historico.push({ role: "user", content: "[enviou uma imagem]", ts: Date.now() });
+      memImg[from].historico.push({ role: "assistant", content: respostaImg, ts: Date.now() });
       memImg[from].ultima_ts = Date.now();
       if (memImg[from].historico.length > 30) memImg[from].historico = memImg[from].historico.slice(-30);
       await salvarMemoria(memImg);
@@ -1008,7 +1024,7 @@ app.post("/webhook", async (req, res) => {
     const memoriaAtual = carregarMemoria();
     if (memoriaAtual[from]?.pausado) {
       if (!memoriaAtual[from].historico) memoriaAtual[from].historico = [];
-      memoriaAtual[from].historico.push({ role: "user", content: texto });
+      memoriaAtual[from].historico.push({ role: "user", content: texto, ts: Date.now() });
       memoriaAtual[from].ultima_ts = Date.now();
       if (memoriaAtual[from].historico.length > 30) {
         memoriaAtual[from].historico = memoriaAtual[from].historico.slice(-30);
@@ -1068,11 +1084,22 @@ app.get("/painel/conversa/:numero", (req, res) => {
   const memoria = carregarMemoria();
   const dados = memoria[req.params.numero];
   if (!dados) return res.status(404).json({ erro: "Conversa não encontrada" });
+
+  // Garante que todas as mensagens tenham ts — mensagens antigas não tinham o campo
+  const historico = (dados.historico || []).map((m, i, arr) => {
+    if (m.ts) return m;
+    // Distribui uniformemente entre 24h atrás e ultima_ts (ou agora)
+    const fim = dados.ultima_ts || Date.now();
+    const inicio = fim - 24 * 60 * 60 * 1000;
+    const ts = Math.round(inicio + (fim - inicio) * (i / Math.max(arr.length - 1, 1)));
+    return { ...m, ts };
+  });
+
   res.json({
     numero: req.params.numero,
     perfil: dados.perfil,
     pausado: dados.pausado || false,
-    historico: dados.historico || [],
+    historico,
   });
 });
 
@@ -1099,7 +1126,7 @@ app.post("/painel/enviar", async (req, res) => {
   // Salva no histórico com tag [RAMON]
   const memoria = carregarMemoria();
   if (!memoria[numero]) memoria[numero] = { historico: [], perfil: perfilVazio(), pausado: true };
-  memoria[numero].historico.push({ role: "assistant", content: `[RAMON]: ${mensagem}` });
+  memoria[numero].historico.push({ role: "assistant", content: `[RAMON]: ${mensagem}`, ts: Date.now() });
   memoria[numero].ultima_ts = Date.now();
   if (memoria[numero].historico.length > 30) {
     memoria[numero].historico = memoria[numero].historico.slice(-30);
@@ -1181,7 +1208,7 @@ app.post("/painel/enviar-midia", async (req, res) => {
     // Registra no histórico
     const memoria = carregarMemoria();
     if (memoria[numero]) {
-      memoria[numero].historico.push({ role: "assistant", content: `[MÍDIA: ${midia.nome || midia_id}]` });
+      memoria[numero].historico.push({ role: "assistant", content: `[MÍDIA: ${midia.nome || midia_id}]`, ts: Date.now() });
       memoria[numero].ultima_ts = Date.now();
       await salvarMemoria(memoria);
     }
