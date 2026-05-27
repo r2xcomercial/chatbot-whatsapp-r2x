@@ -54,12 +54,13 @@ function autenticarPainel(req, res) {
 function calcularScore(perfil) {
   let s = 0;
   if (perfil.nome)                    s += 15;
+  if (perfil.email)                   s +=  5;
   if (perfil.cidade)                  s += 10;
   if (perfil.objetivo)                s += 15;
   if (perfil.tipo)                    s +=  5;
   if (perfil.faixa_investimento)      s += 20;
   if (perfil.prazo)                   s += 15;
-  if (perfil.empreendimento_interesse)s += 20;
+  if (perfil.empreendimento_interesse)s += 15;
   return s; // máx 100
 }
 
@@ -92,6 +93,7 @@ async function sincronizarLeadCRM(telefone, perfil, historico = []) {
     body: JSON.stringify({
       telefone,
       nome:                    perfil.nome,
+      email:                   perfil.email,
       cidade:                  perfil.cidade,
       objetivo:                perfil.objetivo,
       tipo:                    perfil.tipo,
@@ -372,6 +374,9 @@ FLUXO PARA CLIENTE FINAL:
 6. Faixa de investimento
 7. Prazo de decisão
 8. Aplicar gatilho adequado e convidar para grupo VIP ou apresentação
+9. AO CONVIDAR PARA LISTA VIP: sempre peça o e-mail junto com o convite. Ex: "Para te cadastrar na lista VIP e garantir que você receba tudo em primeira mão, me passa seu e-mail? 😊"
+   - Se o lead hesitar, reforce: "É só para não perder nenhuma novidade — não compartilho com ninguém."
+   - Salve o e-mail assim que informado e agradeça com naturalidade.
 
 FLUXO PARA CORRETOR DE IMÓVEIS:
 1. Cumprimentar com entusiasmo — corretor é parceiro estratégico
@@ -422,6 +427,7 @@ ${JSON.stringify(perfilAtual)}
 Retorne JSON com os campos identificados (null para os não encontrados):
 {
   "nome": null,
+  "email": null,
   "cidade": null,
   "objetivo": null,
   "tipo": null,
@@ -429,7 +435,8 @@ Retorne JSON com os campos identificados (null para os não encontrados):
   "prazo": null,
   "empreendimento_interesse": null
 }
-Obs: "tipo" deve ser "cliente" se é comprador/investidor final, ou "corretor" se é agente imobiliário.`;
+Obs: "tipo" deve ser "cliente" se é comprador/investidor final, ou "corretor" se é agente imobiliário.
+Obs: "email" deve ser extraído se o lead mencionar um endereço de e-mail no texto.`;
 
   try {
     const result = await openai.chat.completions.create({
@@ -523,6 +530,7 @@ async function gerarResposta(numero, mensagem) {
 function perfilVazio() {
   return {
     nome: null,
+    email: null,
     cidade: null,
     objetivo: null,
     tipo: null, // "cliente" | "corretor"
