@@ -123,7 +123,9 @@ async function sincronizarLeadCRM(telefone, perfil, historico = []) {
 
 const META_TOKEN = process.env.META_ACCESS_TOKEN;
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
-const MEMORIA_FILE = "memoria.json";
+// Usa /app/data/memoria.json se o volume estiver montado (Railway), senão usa local
+const DATA_DIR = fs.existsSync("/app/data") ? "/app/data" : ".";
+const MEMORIA_FILE = `${DATA_DIR}/memoria.json`;
 const CONHECIMENTO_DIR = "conhecimento";
 
 // ─── Memória com proteção contra escrita simultânea ──────────────────────────
