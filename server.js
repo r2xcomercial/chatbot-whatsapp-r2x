@@ -405,6 +405,20 @@ ADAPTAÇÃO POR TIPO (obrigatório):
 - Se perfil mostrar "tipo: cliente" → use EXCLUSIVAMENTE o FLUXO PARA CLIENTE FINAL acima
 - Se tipo ainda não identificado → identifique pelo contexto antes de prosseguir
 
+⚠️ DETECÇÃO PRIORITÁRIA DE CORRETOR — LEIA ANTES DE TUDO:
+Esta é a regra mais importante do sistema. Um corretor identificado como lead comprador gera um problema sério (indica concorrência, compromete relacionamento).
+
+CLASSIFIQUE COMO CORRETOR IMEDIATAMENTE se qualquer um destes sinais aparecer:
+• Palavras/frases: corretor, corretora, CRECI, imobiliária, imobiliária parceira, captação, carteira de imóveis, "tenho um cliente", "meu cliente", "vou levar", "levar um cliente", plantão, comissão, parceria, agente imobiliário, "trabalho com imóveis", "sou do ramo"
+• E-mail com domínio de imobiliária ou ramo imobiliário: qualquer coisa com "imob", "imoveis", "imovel", "corretor", "imovest", "realt", "creci", "propri", "casa", "lar", "habitat" no domínio ou antes do "@"
+• Pergunta sobre tabela de comissão, VGV, percentual de comissão, repasse, co-corretagem
+• Diz que representa outra pessoa ou empresa interessada no imóvel
+• Menciona que trabalha em imobiliária, construtora ou incorporadora
+• Pede material para apresentar para clientes (no plural)
+• Perfil no número de telefone sugere uso profissional (empresas de imóveis conhecidas)
+
+AO DETECTAR: pare o fluxo de cliente imediatamente, atualize o tipo para "corretor" internamente e execute o FLUXO PARA CORRETOR desde o início. Não pergunte se é corretor — afirme com naturalidade: "Que bom ter um parceiro aqui!" e siga o fluxo.
+
 PREVISÃO DO TEMPO:
 - Se aparecer um bloco [DADOS EM TEMPO REAL] com previsão do tempo, use esses dados para responder com naturalidade
 - Responda de forma humana e simpática, como alguém que também vive naquela cidade
@@ -441,7 +455,13 @@ Retorne JSON com os campos identificados (null para os não encontrados):
   "empreendimento_interesse": null
 }
 Obs: "tipo" deve ser "cliente" se é comprador/investidor final, ou "corretor" se é agente imobiliário.
-Obs: "email" deve ser extraído se o lead mencionar um endereço de e-mail no texto.`;
+Obs: "email" deve ser extraído se o lead mencionar um endereço de e-mail no texto.
+Obs CRÍTICA sobre "tipo=corretor": classifique como corretor se aparecer QUALQUER um destes sinais:
+  - Palavras: corretor, corretora, CRECI, imobiliária, captação, carteira, "tenho um cliente", "meu cliente", "vou levar", plantão, comissão, parceria, agente imobiliário, "trabalho com imóveis", "sou do ramo", co-corretagem, VGV, tabela de comissão, repasse
+  - E-mail com domínio ou parte local sugerindo imobiliária: "imob", "imoveis", "imovel", "corretor", "realt", "creci", "propri" no endereço de e-mail
+  - Pede material para apresentar a clientes (no plural) ou representa outra pessoa
+  - Menciona trabalhar em imobiliária, construtora ou incorporadora
+  Em caso de DÚVIDA, prefira "corretor" a "cliente" — é mais seguro errar para esse lado.`;
 
   try {
     const result = await openai.chat.completions.create({
@@ -460,6 +480,47 @@ Obs: "email" deve ser extraído se o lead mencionar um endereço de e-mail no te
   }
 }
 
+// ─── Detector automático de corretor ─────────────────────────────────────────
+// Age antes da IA — qualquer sinal forte garante tipo=corretor imediatamente.
+
+const SINAIS_CORRETOR = [
+  /\bcorretor[a]?\b/i,
+  /\bCRECI\b/i,
+  /\bimobili[aá]ri[ao]\b/i,
+  /\bcapta[çc][aã]o\b/i,
+  /\bcarteira de im[oó]ve(l|is)\b/i,
+  /\btenho um cliente\b/i,
+  /\bmeu cliente\b/i,
+  /\bminha cliente\b/i,
+  /\bvou levar (um|uma|meu|minha)?\s*cliente\b/i,
+  /\bplant[aã]o\b/i,
+  /\bcomiss[aã]o\b/i,
+  /\bparceria\b/i,
+  /\bagente imobili[aá]rio\b/i,
+  /\btrabalho com im[oó]ve(l|is)\b/i,
+  /\bsou do ramo\b/i,
+  /\bco.?corretagem\b/i,
+  /\bVGV\b/i,
+  /\btabela de comiss[aã]o\b/i,
+  /\brepasse\b/i,
+  /\bparceiro\s+(de\s+neg[oó]cios|comercial)?\b/i,
+  /\bapresenta[rr]\s+(para|aos?)\s+cliente/i,
+  /\bmaterial\s+(para\s+)?meus\s+clientes\b/i,
+];
+
+const DOMINIOS_CORRETOR = /imob|imoveis|imovel|corretor|realt|creci|propri|habitat|casas|lares?|imovest/i;
+
+function detectarCorretorNaMensagem(mensagem, emailAtual) {
+  if (SINAIS_CORRETOR.some(re => re.test(mensagem))) return true;
+  // Detecta e-mail mencionado na mensagem
+  const emailNaMensagem = mensagem.match(/[\w.+-]+@[\w.-]+\.\w{2,}/)?.[0] || emailAtual || "";
+  if (emailNaMensagem) {
+    const [local, dominio] = emailNaMensagem.split("@");
+    if (DOMINIOS_CORRETOR.test(local) || DOMINIOS_CORRETOR.test(dominio)) return true;
+  }
+  return false;
+}
+
 // ─── Geração de resposta ──────────────────────────────────────────────────────
 
 async function gerarResposta(numero, mensagem) {
@@ -470,6 +531,22 @@ async function gerarResposta(numero, mensagem) {
   }
   if (!memoria[numero].perfil) {
     memoria[numero].perfil = perfilVazio();
+  }
+
+  // Detecta corretor por palavras-chave antes mesmo da IA processar
+  if (!memoria[numero].perfil.tipo || memoria[numero].perfil.tipo === "cliente") {
+    if (detectarCorretorNaMensagem(mensagem, memoria[numero].perfil.email)) {
+      memoria[numero].perfil.tipo = "corretor";
+      console.log(`[CORRETOR DETECTADO] ${numero} — sinal na mensagem: "${mensagem.slice(0, 80)}"`);
+    }
+  }
+
+  // Verifica e-mail já salvo no perfil também (pode ter chegado em mensagem anterior)
+  if (!memoria[numero].perfil.tipo && memoria[numero].perfil.email) {
+    if (detectarCorretorNaMensagem("", memoria[numero].perfil.email)) {
+      memoria[numero].perfil.tipo = "corretor";
+      console.log(`[CORRETOR DETECTADO] ${numero} — sinal no e-mail: ${memoria[numero].perfil.email}`);
+    }
   }
 
   memoria[numero].historico.push({ role: "user", content: mensagem, ts: Date.now() });
@@ -519,6 +596,13 @@ async function gerarResposta(numero, mensagem) {
   // Extrai perfil em background e sincroniza CRM
   extrairPerfil(memoria[numero].historico, memoria[numero].perfil).then(
     async (novoPerfil) => {
+      // Re-checa corretor após IA extrair perfil (ex: e-mail só aparece depois)
+      if (!novoPerfil.tipo || novoPerfil.tipo === "cliente") {
+        if (detectarCorretorNaMensagem("", novoPerfil.email || "")) {
+          novoPerfil.tipo = "corretor";
+          console.log(`[CORRETOR DETECTADO] ${numero} — sinal no e-mail extraído: ${novoPerfil.email}`);
+        }
+      }
       const mem = carregarMemoria();
       if (mem[numero]) {
         mem[numero].perfil = novoPerfil;
