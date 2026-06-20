@@ -1022,6 +1022,113 @@ app.post("/chat", async (req, res) => {
   }
 });
 
+// POST /lead/formulario — recebe lead de formulário de tráfego pago e inicia conversa
+// Campos esperados: numero (obrigatório), nome?, cidade?, capacidade_entrada?, empreendimento?
+// Autenticação: X-Painel-Token (mesmo token do painel)
+app.post("/lead/formulario", async (req, res) => {
+  if (!autenticarPainel(req, res)) return;
+
+  let { numero, nome, cidade, capacidade_entrada, empreendimento } = req.body;
+  if (!numero) return res.status(400).json({ erro: "numero é obrigatório" });
+
+  // Normaliza o número (só dígitos, sem espaços)
+  numero = String(numero).replace(/\D/g, "").trim();
+  if (!numero.startsWith("55")) numero = `55${numero}`;
+
+  const memoria = carregarMemoria();
+
+  // Se já existe conversa ativa (evita duplicar ativação)
+  if (memoria[numero]?.historico?.length > 2) {
+    return res.json({ ok: true, msg: "Lead já possui conversa ativa — nenhuma ação enviada." });
+  }
+
+  // Monta o perfil com os dados do formulário
+  const perfil = perfilVazio();
+  if (nome)                perfil.nome = nome.trim();
+  if (cidade)              perfil.cidade = cidade.trim();
+  if (empreendimento)      perfil.empreendimento_interesse = empreendimento.trim();
+  else                     perfil.empreendimento_interesse = "Recanto da Colina";
+  perfil.tipo = "cliente"; // lead de tráfego pago é cliente final por padrão
+
+  // Armazena capacidade de entrada como campo extra (não está no perfil padrão)
+  const dadosExtra = capacidade_entrada ? `Capacidade de entrada informada no formulário: ${capacidade_entrada}` : null;
+
+  // Injeta mensagem sintética representando o formulário no histórico
+  const msgFormulario = [
+    `[FORMULÁRIO DE INTERESSE — ${perfil.empreendimento_interesse}]`,
+    nome       ? `Nome: ${nome}` : null,
+    cidade     ? `Cidade: ${cidade}` : null,
+    dadosExtra ? dadosExtra : null,
+    "O lead preencheu um formulário de interesse no site/anúncio e está aguardando contato.",
+  ].filter(Boolean).join("\n");
+
+  memoria[numero] = {
+    historico: [{ role: "user", content: msgFormulario, ts: Date.now() }],
+    perfil,
+    pausado: false,
+    ultima_ts: Date.now(),
+    origem: "formulario",
+  };
+  await salvarMemoria(memoria);
+
+  // Gera a primeira mensagem da Débora com o contexto do formulário
+  try {
+    const perfilTexto = Object.entries(perfil)
+      .filter(([, v]) => v)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ");
+
+    const contextoFormulario = dadosExtra
+      ? `\n\n[CONTEXTO DO FORMULÁRIO]\n${dadosExtra}\nUse essa informação para personalizar a abordagem, mas não cite o valor exato — fale sobre condições adequadas ao perfil.`
+      : "";
+
+    const systemPrompt = (CEREBRO_R2X
+      .replace("{CONHECIMENTO}", carregarConhecimento() || "nenhum empreendimento cadastrado")
+      .replace("{PERFIL}", perfilTexto)) + contextoFormulario;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4.1-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: msgFormulario + "\n\nIMPORTANTE: Crie uma mensagem de primeiro contato calorosa e personalizada. " +
+            "Já conhece o empreendimento de interesse" + (cidade ? `, a cidade (${cidade})` : "") +
+            (dadosExtra ? " e a capacidade financeira do lead" : "") + ". " +
+            "NÃO peça informações que já temos. " +
+            (nome ? `Chame pelo nome (${nome}). ` : "Comece perguntando o nome. ") +
+            "Siga o fluxo de qualificação — próxima pergunta deve ser sobre objetivo (morar ou investir).",
+        },
+      ],
+    });
+
+    const primeiraMsg = completion.choices[0].message.content;
+
+    // Salva a resposta da Débora no histórico
+    const mem2 = carregarMemoria();
+    if (mem2[numero]) {
+      mem2[numero].historico.push({ role: "assistant", content: primeiraMsg, ts: Date.now() });
+      await salvarMemoria(mem2);
+    }
+
+    // Envia pelo WhatsApp
+    await enviarMensagem(numero, primeiraMsg);
+
+    // Notifica o painel em tempo real
+    notificarPainel({ tipo: "nova_conversa", numero, perfil });
+    notificarPainel({ tipo: "mensagem", numero, role: "assistant", content: primeiraMsg, ts: Date.now() });
+
+    // Sincroniza com o CRM
+    sincronizarLeadCRM(numero, perfil, mem2[numero]?.historico || []).catch(() => {});
+
+    console.log(`[FORMULÁRIO] Novo lead iniciado: ${numero} | ${perfil.empreendimento_interesse} | ${cidade || "cidade não informada"}`);
+    return res.json({ ok: true, numero, msg: "Lead iniciado com sucesso." });
+  } catch (e) {
+    console.error("[FORMULÁRIO] Erro ao gerar mensagem inicial:", e.message);
+    return res.status(500).json({ erro: "Erro ao gerar mensagem inicial", detalhe: e.message });
+  }
+});
+
 app.get("/lead/:numero", (req, res) => {
   const memoria = carregarMemoria();
   const lead = memoria[req.params.numero];
