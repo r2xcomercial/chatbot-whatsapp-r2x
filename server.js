@@ -15,6 +15,18 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "r2x123";
 const CRM_URL = process.env.CRM_URL || process.env.URL_CRM || "http://localhost:4000";
 const PAINEL_TOKEN = process.env.PAINEL_TOKEN || "r2x@painel2026";
 const DONO_NUMERO = (process.env.DONO_NUMERO || "").replace(/\D/g, "").trim(); // normalizado: só dígitos
+
+// Compara números BR normalizando o 9 extra (WhatsApp às vezes omite em números de 8 dígitos)
+function ehDono(from) {
+  if (!DONO_NUMERO) return false;
+  if (from === DONO_NUMERO) return true;
+  // Tenta remover ou adicionar o 9 após o DDD (posição 4 após o 55)
+  const semNove = from.replace(/^(55\d{2})9(\d{8})$/, "$1$2");
+  const comNove = from.replace(/^(55\d{2})(\d{8})$/, "$19$2");
+  return semNove === DONO_NUMERO || comNove === DONO_NUMERO ||
+         from === DONO_NUMERO.replace(/^(55\d{2})9(\d{8})$/, "$1$2") ||
+         from === DONO_NUMERO.replace(/^(55\d{2})(\d{8})$/, "$19$2");
+}
 const INSTRUCOES_FILE = "conhecimento/instrucoes-dono.txt";
 const CALENDAR_WEBHOOK = process.env.GOOGLE_CALENDAR_WEBHOOK || "";
 
@@ -1003,7 +1015,7 @@ async function verificarEnvioAutoMidia(para, resposta, perfil) {
 async function executarBroadcast(mensagem) {
   const memoria = carregarMemoria();
   const leads = Object.entries(memoria).filter(([num, dados]) => {
-    if (DONO_NUMERO && num.replace(/\D/g,"") === DONO_NUMERO) return false;
+    if (ehDono(num.replace(/\D/g,""))) return false;
     if (dados.pausado) return false;
     return (dados.historico || []).length > 0;
   });
@@ -1043,7 +1055,7 @@ async function verificarFollowUps() {
     let alterou = false;
 
     for (const [numero, dados] of Object.entries(memoria)) {
-      if (DONO_NUMERO && numero.replace(/\D/g,"") === DONO_NUMERO) continue;
+      if (ehDono(numero.replace(/\D/g,""))) continue;
       if (dados.pausado) continue;
       if (!dados.ultima_ts) continue;
 
@@ -1237,7 +1249,7 @@ app.post("/webhook", async (req, res) => {
     setTimeout(() => mensagensProcessadas.delete(message.id), 3_600_000);
 
     const from = (message.from || "").replace(/\D/g, "").trim();
-    console.log(`[webhook] from="${from}" DONO_NUMERO="${DONO_NUMERO}" isDono=${DONO_NUMERO && from === DONO_NUMERO}`);
+    console.log(`[webhook] from="${from}" DONO_NUMERO="${DONO_NUMERO}" isDono=${ehDono(from)}`);
 
     // Botões interativos: converte reply para texto antes de processar
     if (message.type === "interactive") {
@@ -1270,7 +1282,7 @@ app.post("/webhook", async (req, res) => {
     // Imagem: analisa com GPT-4o Vision
     if (message.type === "image") {
       const mediaId = message.image?.id;
-      const isDono = DONO_NUMERO && from === DONO_NUMERO;
+      const isDono = ehDono(from);
 
       // Se for o Ramon, tenta extrair convite de agenda da imagem
       if (isDono && CALENDAR_WEBHOOK) {
@@ -1354,7 +1366,7 @@ app.post("/webhook", async (req, res) => {
     console.log(`[${new Date().toLocaleTimeString()}] ${from}: ${prefixo}${texto}`);
 
     // Modo dono: Ramon conversa diretamente com a Débora para treinar e instruir
-    if (DONO_NUMERO && from === DONO_NUMERO) {
+    if (ehDono(from)) {
       const respostaDono = await gerarRespostaDono(from, texto);
       await enviarMensagem(from, respostaDono);
       return res.sendStatus(200);
