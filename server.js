@@ -298,13 +298,18 @@ Regras:
 
 async function criarEventoCalendario(dados) {
   if (!CALENDAR_WEBHOOK) throw new Error("GOOGLE_CALENDAR_WEBHOOK não configurado");
-  const r = await fetch(CALENDAR_WEBHOOK, {
+  // Apps Script retorna 302 → precisamos fazer POST sem seguir redirect,
+  // depois GET na URL do Location para obter a resposta real.
+  const r1 = await fetch(CALENDAR_WEBHOOK, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(dados),
-    redirect: "follow",
+    redirect: "manual",
   });
-  const text = await r.text();
+  const echoUrl = r1.headers.get("location");
+  if (!echoUrl) return { ok: false, erro: "Sem redirect do Apps Script" };
+  const r2 = await fetch(echoUrl);
+  const text = await r2.text();
   try { return JSON.parse(text); } catch { return { ok: false, erro: text }; }
 }
 
