@@ -16,6 +16,7 @@ const CRM_URL = process.env.CRM_URL || process.env.URL_CRM || "http://localhost:
 const PAINEL_TOKEN = process.env.PAINEL_TOKEN || "r2x@painel2026";
 const DONO_NUMERO = (process.env.DONO_NUMERO || "").replace(/\D/g, "").trim(); // normalizado: só dígitos
 const INSTRUCOES_FILE = "conhecimento/instrucoes-dono.txt";
+const CALENDAR_WEBHOOK = process.env.GOOGLE_CALENDAR_WEBHOOK || "";
 
 // ─── CORS para o CRM R2X ──────────────────────────────────────────────────────
 
@@ -252,8 +253,88 @@ Se NÃO (só conversa, teste, pergunta ou simulação): responda apenas: NENHUMA
   } catch {}
 }
 
+// ─── Agenda do Google (secretária pessoal do Ramon) ──────────────────────────
+
+const REGEX_AGENDA = /\b(reuni[aã]o|encontro|almo[çc]o|jantar|call|consulta|apresenta[çc][aã]o|visita|evento|compromisso|agendar|agenda|marcar|convite)\b/i;
+
+async function extrairDadosEvento(texto) {
+  const agora = new Date().toLocaleDateString("pt-BR", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+    timeZone: "America/Sao_Paulo",
+  });
+  const prompt = `Hoje é ${agora} (fuso: America/Sao_Paulo, UTC-3).
+
+A partir do texto abaixo, extraia os dados do evento de agenda. Retorne APENAS JSON válido, sem texto extra.
+
+Texto: "${texto}"
+
+Formato obrigatório:
+{
+  "titulo": "string — título curto do evento (ex: Reunião com Silvia)",
+  "inicio": "string ISO 8601 com offset -03:00 (ex: 2026-06-30T19:00:00-03:00)",
+  "fim": "string ISO 8601 ou null (se não informado, deixe null)",
+  "local": "string ou null",
+  "descricao": "string ou null"
+}
+
+Regras:
+- Se o dia for mencionado apenas como número (ex: "dia 30"), use o mês atual ou o próximo se o dia já passou.
+- "amanhã", "depois de amanhã", "próxima segunda" etc. devem ser resolvidos com base na data de hoje.
+- Se não houver hora informada, use 09:00.
+- Se houver hora de início mas não de fim, deixe fim como null (o webhook adiciona +1h automaticamente).
+- Se o texto não contiver evento de agenda claro, retorne null (apenas a palavra null, sem JSON).`;
+
+  const result = await openai.chat.completions.create({
+    model: "gpt-4.1-mini",
+    messages: [{ role: "user", content: prompt }],
+    max_tokens: 300,
+    temperature: 0,
+  });
+
+  const raw = result.choices[0].message.content.trim();
+  if (raw === "null") return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+async function criarEventoCalendario(dados) {
+  if (!CALENDAR_WEBHOOK) throw new Error("GOOGLE_CALENDAR_WEBHOOK não configurado");
+  const r = await fetch(CALENDAR_WEBHOOK, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(dados),
+    redirect: "follow",
+  });
+  const text = await r.text();
+  try { return JSON.parse(text); } catch { return { ok: false, erro: text }; }
+}
+
 // Gera resposta da Débora no modo dono (conversa com o Ramon)
 async function gerarRespostaDono(numero, mensagem) {
+  // ── Secretária: detecta pedido de agendamento antes de tudo ──────────────
+  if (CALENDAR_WEBHOOK && REGEX_AGENDA.test(mensagem)) {
+    try {
+      const dados = await extrairDadosEvento(mensagem);
+      if (dados && dados.titulo && dados.inicio) {
+        const resultado = await criarEventoCalendario(dados);
+        if (resultado?.ok) {
+          const dtInicio = new Date(dados.inicio);
+          const fmt = dtInicio.toLocaleString("pt-BR", {
+            weekday: "long", day: "2-digit", month: "long",
+            hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo",
+          });
+          const local = dados.local ? ` | 📍 ${dados.local}` : "";
+          const resposta = `✅ Evento criado na sua agenda!\n\n📅 *${dados.titulo}*\n🕐 ${fmt}${local}`;
+          console.log(`[AGENDA] Evento criado: ${dados.titulo} em ${dados.inicio}`);
+          return resposta;
+        } else {
+          console.error("[AGENDA] Erro ao criar evento:", resultado?.erro);
+        }
+      }
+    } catch (e) {
+      console.error("[AGENDA] Erro:", e.message);
+    }
+  }
+
   // Detecta comandos especiais do dono
   if (/^(disparo|broadcast)\s*:/i.test(mensagem.trim())) {
     const msgDisparo = mensagem.replace(/^(disparo|broadcast)\s*:\s*/i, "").trim();
@@ -1184,12 +1265,65 @@ app.post("/webhook", async (req, res) => {
     // Imagem: analisa com GPT-4o Vision
     if (message.type === "image") {
       const mediaId = message.image?.id;
+      const isDono = DONO_NUMERO && from === DONO_NUMERO;
+
+      // Se for o Ramon, tenta extrair convite de agenda da imagem
+      if (isDono && CALENDAR_WEBHOOK) {
+        try {
+          const { base64: b64, mimeType: mime } = await baixarMidiaBase64(mediaId);
+          const agora = new Date().toLocaleDateString("pt-BR", {
+            weekday: "long", year: "numeric", month: "long", day: "numeric",
+            timeZone: "America/Sao_Paulo",
+          });
+          const visionResult = await openai.chat.completions.create({
+            model: "gpt-4o",
+            max_tokens: 400,
+            temperature: 0,
+            messages: [{
+              role: "user",
+              content: [
+                { type: "text", text: `Hoje é ${agora} (fuso America/Sao_Paulo, UTC-3).\nAnalise esta imagem. Se for um convite, agenda, calendário, card de evento ou qualquer comunicação com data/hora de evento:\nRetorne APENAS JSON no formato:\n{"titulo":"...","inicio":"ISO8601 -03:00","fim":"ISO8601 ou null","local":"... ou null","descricao":"... ou null"}\nSe NÃO for convite de evento, retorne apenas a palavra: NAO_EVENTO` },
+                { type: "image_url", image_url: { url: `data:${mime};base64,${b64}`, detail: "high" } }
+              ]
+            }],
+          });
+          const raw = visionResult.choices[0].message.content.trim();
+          if (raw !== "NAO_EVENTO") {
+            try {
+              const dados = JSON.parse(raw);
+              if (dados?.titulo && dados?.inicio) {
+                const resultado = await criarEventoCalendario(dados);
+                if (resultado?.ok) {
+                  const dtInicio = new Date(dados.inicio);
+                  const fmt = dtInicio.toLocaleString("pt-BR", {
+                    weekday: "long", day: "2-digit", month: "long",
+                    hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo",
+                  });
+                  const local = dados.local ? ` | 📍 ${dados.local}` : "";
+                  const resposta = `✅ Evento criado na sua agenda!\n\n📅 *${dados.titulo}*\n🕐 ${fmt}${local}`;
+                  await enviarMensagem(from, resposta);
+                  return res.sendStatus(200);
+                }
+              }
+            } catch (_) {}
+          }
+        } catch (e) {
+          console.error("[IMAGEM-AGENDA] Erro:", e.message);
+        }
+      }
+
+      // Fluxo normal de análise de imagem (leads ou imagem não reconhecida como convite)
       let respostaImg = RESPOSTAS_MIDIA.image;
       try {
         const memVision = carregarMemoria();
         respostaImg = await analisarImagem(mediaId, memVision[from]?.historico || []);
       } catch (e) {
         console.error("[IMAGEM] Erro na análise:", e.message);
+      }
+      if (isDono) {
+        // Dono recebe a análise mas sem histórico de lead
+        await enviarMensagem(from, respostaImg);
+        return res.sendStatus(200);
       }
       const memImg = carregarMemoria();
       if (!memImg[from]) memImg[from] = { historico: [], perfil: perfilVazio(), pausado: false };
