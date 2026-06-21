@@ -121,18 +121,21 @@ async function sincronizarLeadCRM(telefone, perfil, historico = []) {
   });
 
   // Notifica o dono via WhatsApp quando um novo lead é criado
-  if (DONO_NUMERO) {
-    try {
-      const dados = await r.json().catch(() => ({}));
-      if (dados.criado) {
-        const nome = perfil.nome || "Sem nome";
-        const emp  = perfil.empreendimento_interesse || "—";
-        const obj  = perfil.objetivo || "—";
-        const tel  = telefone.replace(/^55/, '');
-        const msg  = `🆕 *Novo lead no CRM!*\n👤 ${nome}\n📱 ${tel}\n🏗️ ${emp}\n🎯 ${obj}\n⭐ Score: ${score}`;
-        await enviarMensagem(DONO_NUMERO, msg);
-      }
-    } catch (_) { /* notificação é best-effort */ }
+  try {
+    const dados = await r.json().catch(() => ({}));
+    const criado = dados.criado || dados.data?.criado; // CRM retorna {ok,data:{criado}} ou {criado}
+    console.log(`[CRM SYNC] telefone=${telefone} criado=${criado} score=${score}`);
+    if (criado && DONO_NUMERO) {
+      const nome = perfil.nome || "Sem nome";
+      const emp  = perfil.empreendimento_interesse || "—";
+      const obj  = perfil.objetivo || "—";
+      const tel  = telefone.replace(/^55/, '');
+      const msg  = `🆕 *Novo lead no CRM!*\n👤 ${nome}\n📱 ${tel}\n🏗️ ${emp}\n🎯 ${obj}\n⭐ Score: ${score}`;
+      await enviarMensagem(DONO_NUMERO, msg);
+      console.log(`[NOTIF] Novo lead enviado para ${DONO_NUMERO}: ${nome}`);
+    }
+  } catch (e) {
+    console.error("[CRM SYNC] Erro na notificação:", e.message);
   }
 }
 
