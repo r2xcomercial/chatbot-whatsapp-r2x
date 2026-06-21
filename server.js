@@ -14,18 +14,20 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "r2x123";
 const CRM_URL = process.env.CRM_URL || process.env.URL_CRM || "http://localhost:4000";
 const PAINEL_TOKEN = process.env.PAINEL_TOKEN || "r2x@painel2026";
-const DONO_NUMERO = (process.env.DONO_NUMERO || "").replace(/\D/g, "").trim(); // normalizado: só dígitos
+const DONO_NUMERO = (process.env.DONO_NUMERO || "").replace(/\D/g, "").trim();
+const DONOS_EXTRA = (process.env.DONOS_EXTRA || "").split(",").map(n => n.replace(/\D/g,"").trim()).filter(Boolean);
 
-// Compara números BR normalizando o 9 extra (WhatsApp às vezes omite em números de 8 dígitos)
+// Normaliza número BR: gera versão com e sem o 9 extra após DDD
+function variantesNumero(n) {
+  const semNove = n.replace(/^(55\d{2})9(\d{8})$/, "$1$2");
+  const comNove = n.replace(/^(55\d{2})(\d{8})$/, "$19$2");
+  return new Set([n, semNove, comNove]);
+}
+
+// Retorna true se o número é do Ramon ou de qualquer dono extra (ex: Silvia)
 function ehDono(from) {
-  if (!DONO_NUMERO) return false;
-  if (from === DONO_NUMERO) return true;
-  // Tenta remover ou adicionar o 9 após o DDD (posição 4 após o 55)
-  const semNove = from.replace(/^(55\d{2})9(\d{8})$/, "$1$2");
-  const comNove = from.replace(/^(55\d{2})(\d{8})$/, "$19$2");
-  return semNove === DONO_NUMERO || comNove === DONO_NUMERO ||
-         from === DONO_NUMERO.replace(/^(55\d{2})9(\d{8})$/, "$1$2") ||
-         from === DONO_NUMERO.replace(/^(55\d{2})(\d{8})$/, "$19$2");
+  const todos = [DONO_NUMERO, ...DONOS_EXTRA].filter(Boolean);
+  return todos.some(dono => variantesNumero(from).has(dono) || variantesNumero(dono).has(from));
 }
 const INSTRUCOES_FILE = "conhecimento/instrucoes-dono.txt";
 const CALENDAR_WEBHOOK = process.env.GOOGLE_CALENDAR_WEBHOOK || "";
